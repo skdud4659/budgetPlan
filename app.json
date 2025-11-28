@@ -1,0 +1,37 @@
+{
+  "expo": {
+    "name": "Plan Budget",
+    "slug": "plan-budget",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "scheme": "plan-budget",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#5CBDB9"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.planbudget.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#5CBDB9"
+      },
+      "package": "com.planbudget.app"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
