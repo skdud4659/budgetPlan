@@ -8,7 +8,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Link, router } from "expo-router";
@@ -21,6 +20,7 @@ import {
   shadows,
 } from "../../src/styles";
 import { authService } from "../../src/services/authService";
+import ConfirmModal from "../../src/components/ConfirmModal";
 
 export default function SignupScreen() {
   const [email, setEmail] = useState("");
@@ -32,6 +32,15 @@ export default function SignupScreen() {
   const [emailFocused, setEmailFocused] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
   const [confirmPasswordFocused, setConfirmPasswordFocused] = useState(false);
+  const [alertModal, setAlertModal] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+  }>({ visible: false, title: "", message: "" });
+
+  const showAlert = (title: string, message: string) => {
+    setAlertModal({ visible: true, title, message });
+  };
 
   const isValidEmail = email.includes("@") && email.includes(".");
   const isValidPassword = password.length >= 6;
@@ -47,7 +56,7 @@ export default function SignupScreen() {
       await authService.signUp(email, password);
       router.replace("/(tabs)/home");
     } catch (error: any) {
-      Alert.alert("회원가입 실패", error.message || "회원가입에 실패했습니다.");
+      showAlert("회원가입 실패", error.message || "회원가입에 실패했습니다.");
     } finally {
       setIsLoading(false);
     }
@@ -277,6 +286,16 @@ export default function SignupScreen() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <ConfirmModal
+        visible={alertModal.visible}
+        title={alertModal.title}
+        message={alertModal.message}
+        confirmText="확인"
+        cancelText=""
+        onConfirm={() => setAlertModal({ ...alertModal, visible: false })}
+        onCancel={() => setAlertModal({ ...alertModal, visible: false })}
+      />
     </SafeAreaView>
   );
 }

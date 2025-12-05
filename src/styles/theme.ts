@@ -186,7 +186,7 @@ export const assetTypeConfig = {
 
 // 예산 타입별 설정
 export const budgetTypeConfig = {
-  personal: { label: '내꺼', color: colors.primary.main },
+  personal: { label: '개인', color: colors.primary.main },
   joint: { label: '공동', color: colors.secondary.main },
 } as const;
 

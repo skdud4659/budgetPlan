@@ -26,6 +26,7 @@ interface AddAssetSheetProps {
   visible: boolean;
   onClose: () => void;
   onSubmit: (data: AssetFormData) => Promise<void>;
+  onDelete?: () => void; // 삭제 콜백
   editAsset?: Asset | null; // 수정 모드일 때
 }
 
@@ -51,6 +52,7 @@ export default function AddAssetSheet({
   visible,
   onClose,
   onSubmit,
+  onDelete,
   editAsset,
 }: AddAssetSheetProps) {
   const [name, setName] = useState("");
@@ -91,9 +93,11 @@ export default function AddAssetSheet({
   };
 
   const handleSubmit = async () => {
-    if (!name.trim() || !balance || isLoading) return;
+    // 카드는 잔액 없이 제출 가능
+    if (!name.trim() || isLoading) return;
+    if (type !== "card" && !balance) return;
 
-    const balanceNum = parseFloat(balance.replace(/,/g, ""));
+    const balanceNum = type === "card" ? 0 : parseFloat(balance.replace(/,/g, ""));
     const finalBalance = isNegative ? -balanceNum : balanceNum;
 
     setIsLoading(true);
@@ -117,7 +121,7 @@ export default function AddAssetSheet({
     return parseInt(num, 10).toLocaleString("ko-KR");
   };
 
-  const canSubmit = name.trim() && balance;
+  const canSubmit = name.trim() && (type === "card" || balance);
 
   return (
     <Modal
@@ -159,27 +163,36 @@ export default function AddAssetSheet({
             <Text style={styles.headerTitle}>
               {isEditMode ? "자산 수정" : "자산 추가"}
             </Text>
-            <TouchableOpacity
-              onPress={handleSubmit}
-              style={[
-                styles.submitButton,
-                (!canSubmit || isLoading) && styles.submitButtonDisabled,
-              ]}
-              disabled={!canSubmit || isLoading}
-            >
-              {isLoading ? (
-                <ActivityIndicator size="small" color={colors.text.inverse} />
-              ) : (
-                <Text
-                  style={[
-                    styles.submitButtonText,
-                    !canSubmit && styles.submitButtonTextDisabled,
-                  ]}
+            <View style={styles.headerActions}>
+              {isEditMode && onDelete && (
+                <TouchableOpacity
+                  onPress={onDelete}
+                  style={styles.headerIconButton}
+                  disabled={isLoading}
                 >
-                  {isEditMode ? "수정" : "추가"}
-                </Text>
+                  <Ionicons
+                    name="trash-outline"
+                    size={22}
+                    color={colors.semantic.expense}
+                  />
+                </TouchableOpacity>
               )}
-            </TouchableOpacity>
+              <TouchableOpacity
+                onPress={handleSubmit}
+                style={styles.headerIconButton}
+                disabled={!canSubmit || isLoading}
+              >
+                {isLoading ? (
+                  <ActivityIndicator size="small" color={colors.primary.main} />
+                ) : (
+                  <Ionicons
+                    name="checkmark"
+                    size={24}
+                    color={canSubmit ? colors.primary.main : colors.text.tertiary}
+                  />
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
 
           <ScrollView
@@ -254,60 +267,62 @@ export default function AddAssetSheet({
               </View>
             </View>
 
-            {/* Balance */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>잔액</Text>
-              <View style={styles.balanceRow}>
-                <TouchableOpacity
-                  style={[
-                    styles.signButton,
-                    !isNegative && styles.signButtonActive,
-                  ]}
-                  onPress={() => setIsNegative(false)}
-                >
-                  <Text
+            {/* Balance (카드 제외) */}
+            {type !== "card" && (
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>잔액</Text>
+                <View style={styles.balanceRow}>
+                  <TouchableOpacity
                     style={[
-                      styles.signButtonText,
-                      !isNegative && styles.signButtonTextActive,
+                      styles.signButton,
+                      !isNegative && styles.signButtonActive,
                     ]}
+                    onPress={() => setIsNegative(false)}
                   >
-                    +
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    styles.signButton,
-                    isNegative && styles.signButtonNegative,
-                  ]}
-                  onPress={() => setIsNegative(true)}
-                >
-                  <Text
+                    <Text
+                      style={[
+                        styles.signButtonText,
+                        !isNegative && styles.signButtonTextActive,
+                      ]}
+                    >
+                      +
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
                     style={[
-                      styles.signButtonText,
-                      isNegative && styles.signButtonTextActive,
+                      styles.signButton,
+                      isNegative && styles.signButtonNegative,
                     ]}
+                    onPress={() => setIsNegative(true)}
                   >
-                    -
+                    <Text
+                      style={[
+                        styles.signButtonText,
+                        isNegative && styles.signButtonTextActive,
+                      ]}
+                    >
+                      -
+                    </Text>
+                  </TouchableOpacity>
+                  <TextInput
+                    style={[styles.textInput, styles.balanceInput]}
+                    placeholder="0"
+                    placeholderTextColor={colors.text.tertiary}
+                    value={formatBalance(balance)}
+                    onChangeText={(text) =>
+                      setBalance(text.replace(/[^0-9]/g, ""))
+                    }
+                    keyboardType="numeric"
+                  />
+                  <Text style={styles.currencyLabel}>원</Text>
+                </View>
+                {type === "loan" && (
+                  <Text style={styles.hintText}>
+                    대출은 마이너스(-)로 입력하세요
                   </Text>
-                </TouchableOpacity>
-                <TextInput
-                  style={[styles.textInput, styles.balanceInput]}
-                  placeholder="0"
-                  placeholderTextColor={colors.text.tertiary}
-                  value={formatBalance(balance)}
-                  onChangeText={(text) =>
-                    setBalance(text.replace(/[^0-9]/g, ""))
-                  }
-                  keyboardType="numeric"
-                />
-                <Text style={styles.currencyLabel}>원</Text>
+                )}
               </View>
-              {(type === "card" || type === "loan") && (
-                <Text style={styles.hintText}>
-                  카드/대출은 마이너스(-)로 입력하세요
-                </Text>
-              )}
-            </View>
+            )}
 
             {/* Billing Date & Settlement Date (카드용) */}
             {type === "card" && (
@@ -410,22 +425,13 @@ const styles = StyleSheet.create({
     fontWeight: typography.fontWeight.semiBold,
     color: colors.text.primary,
   },
-  submitButton: {
-    paddingHorizontal: spacing.base,
-    paddingVertical: spacing.sm,
-    borderRadius: borderRadius.base,
-    backgroundColor: colors.primary.main,
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
   },
-  submitButtonDisabled: {
-    backgroundColor: colors.border.light,
-  },
-  submitButtonText: {
-    fontSize: typography.fontSize.md,
-    fontWeight: typography.fontWeight.semiBold,
-    color: colors.text.inverse,
-  },
-  submitButtonTextDisabled: {
-    color: colors.text.tertiary,
+  headerIconButton: {
+    padding: spacing.xs,
   },
   scrollView: {
     paddingHorizontal: spacing.lg,

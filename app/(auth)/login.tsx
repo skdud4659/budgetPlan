@@ -8,13 +8,13 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Link, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, typography, spacing, borderRadius, shadows } from '../../src/styles';
 import { authService } from '../../src/services/authService';
+import ConfirmModal from '../../src/components/ConfirmModal';
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
@@ -23,6 +23,15 @@ export default function LoginScreen() {
   const [isLoading, setIsLoading] = useState(false);
   const [emailFocused, setEmailFocused] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
+  const [alertModal, setAlertModal] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+  }>({ visible: false, title: '', message: '' });
+
+  const showAlert = (title: string, message: string) => {
+    setAlertModal({ visible: true, title, message });
+  };
 
   const handleLogin = async () => {
     if (!email || !password) return;
@@ -32,7 +41,7 @@ export default function LoginScreen() {
       await authService.signIn(email, password);
       router.replace('/(tabs)/home');
     } catch (error: any) {
-      Alert.alert('로그인 실패', error.message || '이메일 또는 비밀번호를 확인해주세요.');
+      showAlert('로그인 실패', error.message || '이메일 또는 비밀번호를 확인해주세요.');
     } finally {
       setIsLoading(false);
     }
@@ -182,6 +191,16 @@ export default function LoginScreen() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <ConfirmModal
+        visible={alertModal.visible}
+        title={alertModal.title}
+        message={alertModal.message}
+        confirmText="확인"
+        cancelText=""
+        onConfirm={() => setAlertModal({ ...alertModal, visible: false })}
+        onCancel={() => setAlertModal({ ...alertModal, visible: false })}
+      />
     </SafeAreaView>
   );
 }

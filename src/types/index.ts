@@ -24,8 +24,8 @@ export type TransactionType = 'income' | 'expense' | 'transfer';
 // 예산 타입
 export type BudgetType = 'personal' | 'joint';
 
-// 정기지출 타입
-export type FixedItemType = 'fixed' | 'installment';
+// 정기지출 타입 (할부는 이제 transactions에서 관리)
+export type FixedItemType = 'fixed';
 
 // 자산 인터페이스
 export interface Asset {
@@ -46,11 +46,12 @@ export interface Category {
   id: string;
   userId: string | null; // null이면 기본 카테고리
   name: string;
-  iconCodePoint: number;
-  colorValue: number;
+  iconName: string; // Ionicons 아이콘 이름
+  color: string; // HEX 색상 (#FF6B6B)
   type: CategoryType;
   sortOrder: number;
   isDefault: boolean;
+  isHidden: boolean; // 숨김 여부
   createdAt: string;
 }
 
@@ -66,9 +67,13 @@ export interface Transaction {
   assetId: string | null;
   toAssetId: string | null; // 이체 대상 자산
   budgetType: BudgetType;
-  isFixed: boolean;
-  fixedItemId: string | null;
   note: string | null;
+  // 할부 관련 필드
+  isInstallment: boolean;
+  totalTerm: number | null; // 총 할부 개월
+  currentTerm: number | null; // 현재 회차
+  installmentDay: number | null; // 할부 납부일 (1-31)
+  includeInLivingExpense: boolean; // 생활비 포함 여부
   createdAt: string;
   updatedAt: string;
   // Relations (optional - for joined queries)
@@ -77,7 +82,7 @@ export interface Transaction {
   toAsset?: Asset;
 }
 
-// 정기지출 인터페이스
+// 정기지출 인터페이스 (할부는 이제 transactions에서 관리)
 export interface FixedItem {
   id: string;
   userId: string;
@@ -85,17 +90,11 @@ export interface FixedItem {
   type: FixedItemType;
   amount: number;
   day: number; // 납부일 (1-31)
-  categoryId: string | null;
   assetId: string | null;
   budgetType: BudgetType;
-  totalTerm: number | null; // 할부 총 회차
-  paidTerm: number; // 납부 완료 회차
-  currentRound: number; // 현재 회차 (이어쓰기 시작점)
-  startDate: string | null;
   isActive: boolean;
   createdAt: string;
   // Relations
-  category?: Category;
   asset?: Asset;
 }
 
@@ -105,6 +104,11 @@ export interface AppSettings {
   userId: string;
   jointBudgetEnabled: boolean;
   defaultAssetId: string | null;
+  monthStartDay: number; // 월 시작일 (1-28)
+  lastProcessedMonth: string | null; // 마지막으로 할부 처리한 월 (YYYY-MM)
+  personalBudget: number; // 개인 생활비 예산
+  jointBudget: number; // 공동 생활비 예산
+  onboardingCompleted: boolean; // 온보딩 완료 여부
   createdAt: string;
   updatedAt: string;
 }
@@ -177,6 +181,7 @@ export interface FixedItemFormData {
   budgetType: BudgetType;
   totalTerm: string; // 할부용
   currentRound: string; // 이어쓰기용
+  includeInLivingExpense: boolean; // 생활비에 포함 여부 (할부용)
 }
 
 // Navigation 관련 타입

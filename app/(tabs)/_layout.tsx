@@ -1,6 +1,6 @@
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, typography, shadows } from '../../src/styles';
+import { colors, shadows } from '../../src/styles';
 import { View, StyleSheet, Platform } from 'react-native';
 
 type IconName = keyof typeof Ionicons.glyphMap;
@@ -13,7 +13,7 @@ export default function TabLayout() {
         tabBarActiveTintColor: colors.primary.main,
         tabBarInactiveTintColor: colors.text.tertiary,
         tabBarStyle: styles.tabBar,
-        tabBarLabelStyle: styles.tabBarLabel,
+        tabBarShowLabel: false,
         tabBarItemStyle: styles.tabBarItem,
       }}
     >
@@ -31,12 +31,18 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="transactions"
+        options={{
+          href: null, // 탭바에서 숨김
+        }}
+      />
+      <Tabs.Screen
         name="scheduled"
         options={{
           title: '정기지출',
           tabBarIcon: ({ focused, color }) => (
             <TabIcon
-              name={focused ? 'calendar' : 'calendar-outline'}
+              name={focused ? 'repeat' : 'repeat-outline'}
               color={color}
               focused={focused}
             />
@@ -93,15 +99,10 @@ const styles = StyleSheet.create({
   tabBar: {
     backgroundColor: colors.background.secondary,
     borderTopWidth: 0,
-    height: Platform.OS === 'ios' ? 88 : 64,
+    height: Platform.OS === 'ios' ? 80 : 60,
     paddingTop: 8,
-    paddingBottom: Platform.OS === 'ios' ? 28 : 8,
+    paddingBottom: Platform.OS === 'ios' ? 24 : 8,
     ...shadows.lg,
-  },
-  tabBarLabel: {
-    fontSize: typography.fontSize.xs,
-    fontWeight: typography.fontWeight.medium,
-    marginTop: 4,
   },
   tabBarItem: {
     paddingTop: 4,

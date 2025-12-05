@@ -1,32 +1,62 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
-  Alert,
   ScrollView,
+  Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { Swipeable } from 'react-native-gesture-handler';
 import { colors, typography, spacing, borderRadius, shadows, assetTypeConfig } from '../../src/styles';
 import type { Asset, AssetType } from '../../src/types';
 import { assetService } from '../../src/services/assetService';
+import { transactionService } from '../../src/services/transactionService';
 import AddAssetSheet from '../../src/components/AddAssetSheet';
+import AssetDetailSheet from '../../src/components/AssetDetailSheet';
+import ConfirmModal from '../../src/components/ConfirmModal';
+
+type CardBillingInfo = {
+  [assetId: string]: { currentBilling: number; nextBilling: number };
+};
 
 export default function AssetsScreen() {
   const [assets, setAssets] = useState<Asset[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showAddSheet, setShowAddSheet] = useState(false);
   const [editingAsset, setEditingAsset] = useState<Asset | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Asset | null>(null);
+  const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
+  const [cardBillingInfo, setCardBillingInfo] = useState<CardBillingInfo>({});
 
   // 자산 목록 불러오기
   const loadAssets = useCallback(async () => {
     try {
       const data = await assetService.getAssets();
       setAssets(data);
+
+      // 카드 자산의 결제 예정 금액 로드
+      const cardAssets = data.filter(
+        (a) => a.type === 'card' && a.settlementDate && a.billingDate
+      );
+      const billingInfoPromises = cardAssets.map(async (card) => {
+        const billing = await transactionService.getCardBillingAmount(
+          card.id,
+          card.settlementDate!,
+          card.billingDate!
+        );
+        return { id: card.id, billing };
+      });
+      const billingResults = await Promise.all(billingInfoPromises);
+      const billingMap: CardBillingInfo = {};
+      billingResults.forEach((result) => {
+        billingMap[result.id] = result.billing;
+      });
+      setCardBillingInfo(billingMap);
     } catch (error: any) {
-      Alert.alert('오류', error.message || '자산 목록을 불러오는데 실패했습니다.');
+      console.log('Error loading assets:', error.message);
     } finally {
       setIsLoading(false);
     }
@@ -52,35 +82,38 @@ export default function AssetsScreen() {
       }
       loadAssets();
     } catch (error: any) {
-      Alert.alert('오류', error.message || '자산 저장에 실패했습니다.');
+      console.log('Error saving asset:', error.message);
     }
   };
 
   // 자산 삭제 처리
   const handleDeleteAsset = (asset: Asset) => {
-    Alert.alert(
-      '자산 삭제',
-      `"${asset.name}"을(를) 삭제하시겠습니까?`,
-      [
-        { text: '취소', style: 'cancel' },
-        {
-          text: '삭제',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await assetService.deleteAsset(asset.id);
-              loadAssets();
-            } catch (error: any) {
-              Alert.alert('오류', error.message || '자산 삭제에 실패했습니다.');
-            }
-          },
-        },
-      ]
-    );
+    setDeleteTarget(asset);
+  };
+
+  // 삭제 확인
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+
+    try {
+      await assetService.deleteAsset(deleteTarget.id);
+      handleCloseSheet();
+      loadAssets();
+    } catch (error: any) {
+      console.log('Delete error:', error);
+    } finally {
+      setDeleteTarget(null);
+    }
+  };
+
+  // 자산 상세 보기
+  const handleViewAsset = (asset: Asset) => {
+    setSelectedAsset(asset);
   };
 
   // 자산 수정 모달 열기
   const handleEditAsset = (asset: Asset) => {
+    setSelectedAsset(null); // 상세 시트 닫기
     setEditingAsset(asset);
     setShowAddSheet(true);
   };
@@ -136,29 +169,35 @@ export default function AssetsScreen() {
       >
         {/* Net Worth Card */}
         <View style={styles.netWorthCard}>
-          <Text style={styles.netWorthLabel}>순자산</Text>
-          <Text style={styles.netWorthAmount}>{formatCurrency(netWorth)}</Text>
+          <View style={styles.summaryHeader}>
+            <Text style={styles.summaryTitle}>순자산</Text>
+          </View>
 
-          <View style={styles.netWorthDetails}>
-            <View style={styles.netWorthItem}>
-              <View style={styles.netWorthLabelRow}>
-                <View style={[styles.dot, { backgroundColor: colors.semantic.income }]} />
-                <Text style={styles.netWorthItemLabel}>자산</Text>
-              </View>
-              <Text style={[styles.netWorthItemAmount, styles.assetAmount]}>
-                {formatCurrency(totalAssets)}
-              </Text>
+          <View style={styles.summaryItem}>
+            <View style={styles.summaryLabelRow}>
+              <View style={[styles.dot, { backgroundColor: colors.semantic.income }]} />
+              <Text style={styles.summaryLabel}>자산</Text>
             </View>
-            <View style={styles.netWorthDivider} />
-            <View style={styles.netWorthItem}>
-              <View style={styles.netWorthLabelRow}>
-                <View style={[styles.dot, { backgroundColor: colors.semantic.expense }]} />
-                <Text style={styles.netWorthItemLabel}>부채</Text>
-              </View>
-              <Text style={[styles.netWorthItemAmount, styles.liabilityAmount]}>
-                {formatCurrency(totalLiabilities)}
-              </Text>
+            <Text style={[styles.summaryAmount, styles.assetAmount]}>
+              {formatCurrency(totalAssets)}
+            </Text>
+          </View>
+
+          <View style={styles.summaryItem}>
+            <View style={styles.summaryLabelRow}>
+              <View style={[styles.dot, { backgroundColor: colors.semantic.expense }]} />
+              <Text style={styles.summaryLabel}>부채</Text>
             </View>
+            <Text style={[styles.summaryAmount, styles.liabilityAmount]}>
+              -{formatCurrency(totalLiabilities)}
+            </Text>
+          </View>
+
+          <View style={styles.totalRow}>
+            <Text style={styles.totalLabel}>합계</Text>
+            <Text style={styles.totalAmount}>
+              {formatCurrency(netWorth)}
+            </Text>
           </View>
         </View>
 
@@ -195,8 +234,9 @@ export default function AssetsScreen() {
                     key={asset.id}
                     asset={asset}
                     isLast={index === group.assets.length - 1}
-                    onEdit={() => handleEditAsset(asset)}
+                    onPress={() => handleViewAsset(asset)}
                     onDelete={() => handleDeleteAsset(asset)}
+                    billingInfo={cardBillingInfo[asset.id]}
                   />
                 ))}
               </View>
@@ -218,12 +258,39 @@ export default function AssetsScreen() {
         )}
       </ScrollView>
 
+      {/* 자산 상세 시트 */}
+      <AssetDetailSheet
+        visible={!!selectedAsset}
+        asset={selectedAsset}
+        onClose={() => setSelectedAsset(null)}
+        onEdit={() => selectedAsset && handleEditAsset(selectedAsset)}
+        onDelete={() => {
+          if (selectedAsset) {
+            setSelectedAsset(null);
+            handleDeleteAsset(selectedAsset);
+          }
+        }}
+      />
+
       {/* 자산 추가/수정 바텀시트 */}
       <AddAssetSheet
         visible={showAddSheet}
         onClose={handleCloseSheet}
         onSubmit={handleSubmitAsset}
+        onDelete={editingAsset ? () => handleDeleteAsset(editingAsset) : undefined}
         editAsset={editingAsset}
+      />
+
+      {/* 삭제 확인 모달 */}
+      <ConfirmModal
+        visible={!!deleteTarget}
+        title="자산 삭제"
+        message={`"${deleteTarget?.name}"을(를) 삭제하시겠습니까?`}
+        confirmText="삭제"
+        cancelText="취소"
+        isDestructive={true}
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteTarget(null)}
       />
     </SafeAreaView>
   );
@@ -248,14 +315,18 @@ function getAssetIcon(type: AssetType): keyof typeof Ionicons.glyphMap {
 function AssetCard({
   asset,
   isLast,
-  onEdit,
+  onPress,
   onDelete,
+  billingInfo,
 }: {
   asset: Asset;
   isLast: boolean;
-  onEdit: () => void;
+  onPress: () => void;
   onDelete: () => void;
+  billingInfo?: { currentBilling: number; nextBilling: number };
 }) {
+  const swipeableRef = useRef<Swipeable>(null);
+
   const formatCurrency = (amount: number) => {
     return Math.abs(amount).toLocaleString('ko-KR') + '원';
   };
@@ -263,35 +334,82 @@ function AssetCard({
   const isNegative = asset.balance < 0;
   const isCard = asset.type === 'card';
 
+  const renderRightActions = (
+    progress: Animated.AnimatedInterpolation<number>,
+    dragX: Animated.AnimatedInterpolation<number>
+  ) => {
+    const scale = dragX.interpolate({
+      inputRange: [-80, 0],
+      outputRange: [1, 0.5],
+      extrapolate: 'clamp',
+    });
+
+    return (
+      <TouchableOpacity
+        style={styles.deleteAction}
+        onPress={() => {
+          swipeableRef.current?.close();
+          onDelete();
+        }}
+      >
+        <Animated.View style={{ transform: [{ scale }] }}>
+          <Ionicons name="trash-outline" size={22} color={colors.text.inverse} />
+        </Animated.View>
+      </TouchableOpacity>
+    );
+  };
+
   return (
-    <TouchableOpacity
-      style={[styles.assetCard, !isLast && styles.assetCardBorder]}
-      activeOpacity={0.7}
-      onPress={onEdit}
-      onLongPress={onDelete}
-      delayLongPress={500}
+    <Swipeable
+      ref={swipeableRef}
+      renderRightActions={renderRightActions}
+      overshootRight={false}
+      friction={2}
     >
-      <View style={styles.assetInfo}>
-        <Text style={styles.assetName}>{asset.name}</Text>
-        {isCard && asset.billingDate && (
-          <Text style={styles.assetBillingDate}>
-            {asset.settlementDate
-              ? `정산 ${asset.settlementDate}일 / 결제 ${asset.billingDate}일`
-              : `결제일 ${asset.billingDate}일`}
+      <TouchableOpacity
+        style={[styles.assetCard, !isLast && styles.assetCardBorder]}
+        activeOpacity={0.7}
+        onPress={onPress}
+      >
+        <View style={styles.assetInfo}>
+          <Text style={styles.assetName}>{asset.name}</Text>
+          {isCard && asset.billingDate && (
+            <Text style={styles.assetBillingDate}>
+              {asset.settlementDate
+                ? `정산 ${asset.settlementDate}일 / 결제 ${asset.billingDate}일`
+                : `결제일 ${asset.billingDate}일`}
+            </Text>
+          )}
+        </View>
+
+        {isCard && billingInfo ? (
+          <View style={styles.cardBillingInfo}>
+            <View style={styles.billingRow}>
+              <Text style={styles.billingLabel}>이번달</Text>
+              <Text style={styles.billingAmount}>
+                {formatCurrency(billingInfo.currentBilling)}
+              </Text>
+            </View>
+            <View style={styles.billingRow}>
+              <Text style={styles.billingLabel}>다음달</Text>
+              <Text style={styles.billingAmountNext}>
+                {formatCurrency(billingInfo.nextBilling)}
+              </Text>
+            </View>
+          </View>
+        ) : (
+          <Text
+            style={[
+              styles.assetBalance,
+              isNegative ? styles.negativeBalance : styles.positiveBalance,
+            ]}
+          >
+            {isNegative ? '-' : ''}
+            {formatCurrency(asset.balance)}
           </Text>
         )}
-      </View>
-
-      <Text
-        style={[
-          styles.assetBalance,
-          isNegative ? styles.negativeBalance : styles.positiveBalance,
-        ]}
-      >
-        {isNegative ? '-' : ''}
-        {formatCurrency(asset.balance)}
-      </Text>
-    </TouchableOpacity>
+      </TouchableOpacity>
+    </Swipeable>
   );
 }
 
@@ -328,64 +446,67 @@ const styles = StyleSheet.create({
     paddingBottom: spacing['3xl'],
   },
   netWorthCard: {
-    backgroundColor: colors.primary.main,
+    backgroundColor: colors.background.secondary,
     borderRadius: borderRadius.xl,
     padding: spacing.lg,
     marginBottom: spacing.lg,
-    ...shadows.lg,
+    ...shadows.md,
   },
-  netWorthLabel: {
-    fontSize: typography.fontSize.md,
-    color: colors.primary.contrast,
-    opacity: 0.8,
-    marginBottom: spacing.xs,
+  summaryHeader: {
+    marginBottom: spacing.base,
   },
-  netWorthAmount: {
-    fontSize: typography.fontSize['3xl'],
-    fontWeight: typography.fontWeight.bold,
-    color: colors.primary.contrast,
-    marginBottom: spacing.lg,
+  summaryTitle: {
+    fontSize: typography.fontSize.base,
+    fontWeight: typography.fontWeight.semiBold,
+    color: colors.text.primary,
   },
-  netWorthDetails: {
+  summaryItem: {
     flexDirection: 'row',
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
-    borderRadius: borderRadius.base,
-    padding: spacing.md,
-  },
-  netWorthItem: {
-    flex: 1,
+    justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: spacing.md,
   },
-  netWorthLabelRow: {
+  summaryLabelRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: spacing.xs,
   },
   dot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    marginRight: spacing.xs,
+    marginRight: spacing.sm,
   },
-  netWorthItemLabel: {
-    fontSize: typography.fontSize.sm,
-    color: colors.primary.contrast,
-    opacity: 0.9,
-  },
-  netWorthItemAmount: {
+  summaryLabel: {
     fontSize: typography.fontSize.base,
-    fontWeight: typography.fontWeight.semiBold,
+    color: colors.text.secondary,
+  },
+  summaryAmount: {
+    fontSize: typography.fontSize.lg,
+    fontWeight: typography.fontWeight.bold,
   },
   assetAmount: {
-    color: colors.primary.contrast,
+    color: colors.semantic.income,
   },
   liabilityAmount: {
-    color: colors.primary.contrast,
+    color: colors.semantic.expense,
   },
-  netWorthDivider: {
-    width: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
-    marginHorizontal: spacing.md,
+  totalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: spacing.base,
+    borderTopWidth: 1,
+    borderTopColor: colors.border.light,
+  },
+  totalLabel: {
+    fontSize: typography.fontSize.base,
+    fontWeight: typography.fontWeight.medium,
+    color: colors.text.primary,
+  },
+  totalAmount: {
+    fontSize: typography.fontSize.xl,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.text.primary,
   },
   assetGroup: {
     marginBottom: spacing.lg,
@@ -415,9 +536,17 @@ const styles = StyleSheet.create({
   assetList: {
     backgroundColor: colors.background.secondary,
     borderRadius: borderRadius.lg,
+    overflow: 'hidden',
     ...shadows.sm,
   },
+  deleteAction: {
+    backgroundColor: colors.semantic.expense,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 80,
+  },
   assetCard: {
+    backgroundColor: colors.background.secondary,
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: spacing.md,
@@ -449,6 +578,28 @@ const styles = StyleSheet.create({
   },
   negativeBalance: {
     color: colors.semantic.expense,
+  },
+  cardBillingInfo: {
+    alignItems: 'flex-end',
+  },
+  billingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  billingLabel: {
+    fontSize: typography.fontSize.xs,
+    color: colors.text.tertiary,
+  },
+  billingAmount: {
+    fontSize: typography.fontSize.base,
+    fontWeight: typography.fontWeight.semiBold,
+    color: colors.semantic.expense,
+  },
+  billingAmountNext: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.medium,
+    color: colors.text.tertiary,
   },
   emptyContainer: {
     alignItems: 'center',
