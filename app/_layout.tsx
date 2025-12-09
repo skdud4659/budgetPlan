@@ -1,6 +1,10 @@
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { enableScreens } from 'react-native-screens';
 import { colors } from '../src/styles';
+
+// Android에서 react-native-screens 관련 이슈 해결
+enableScreens(true);
 
 export default function RootLayout() {
   return (

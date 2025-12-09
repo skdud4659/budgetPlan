@@ -21,7 +21,8 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#5CBDB9"
       },
-      "package": "com.planbudget.app"
+      "package": "com.planbudget.app",
+      "edgeToEdgeEnabled": false
     },
     "web": {
       "favicon": "./assets/favicon.png",
@@ -32,6 +33,13 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "b005928e-1ce6-48d2-8005-89733d00445c"
+      }
+    },
+    "owner": "nayeongkim"
   }
 }
