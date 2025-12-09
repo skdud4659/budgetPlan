@@ -8,6 +8,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Link, router } from 'expo-router';
@@ -149,14 +150,17 @@ export default function LoginScreen() {
             <TouchableOpacity
               style={[
                 styles.loginButton,
-                (!email || !password) && styles.loginButtonDisabled,
+                (!email || !password || isLoading) && styles.loginButtonDisabled,
               ]}
               onPress={handleLogin}
               disabled={!email || !password || isLoading}
               activeOpacity={0.8}
             >
               {isLoading ? (
-                <Text style={styles.loginButtonText}>로그인 중...</Text>
+                <View style={styles.loadingRow}>
+                  <ActivityIndicator size="small" color={colors.text.inverse} />
+                  <Text style={styles.loginButtonText}>로그인 중...</Text>
+                </View>
               ) : (
                 <Text style={styles.loginButtonText}>로그인</Text>
               )}
@@ -354,5 +358,10 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.md,
     fontWeight: typography.fontWeight.semiBold,
     color: colors.primary.main,
+  },
+  loadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
   },
 });

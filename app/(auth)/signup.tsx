@@ -8,6 +8,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Link, router } from "expo-router";
@@ -254,14 +255,17 @@ export default function SignupScreen() {
             <TouchableOpacity
               style={[
                 styles.signupButton,
-                !canSubmit && styles.signupButtonDisabled,
+                (!canSubmit || isLoading) && styles.signupButtonDisabled,
               ]}
               onPress={handleSignup}
               disabled={!canSubmit || isLoading}
               activeOpacity={0.8}
             >
               {isLoading ? (
-                <Text style={styles.signupButtonText}>가입 중...</Text>
+                <View style={styles.loadingRow}>
+                  <ActivityIndicator size="small" color={colors.text.inverse} />
+                  <Text style={styles.signupButtonText}>가입 중...</Text>
+                </View>
               ) : (
                 <Text style={styles.signupButtonText}>가입하기</Text>
               )}
@@ -436,5 +440,10 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.md,
     fontWeight: typography.fontWeight.semiBold,
     color: colors.primary.main,
+  },
+  loadingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
   },
 });

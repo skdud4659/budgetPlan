@@ -77,6 +77,7 @@ export default function HomeScreen() {
   >("personal");
   const [personalBudgetInput, setPersonalBudgetInput] = useState("");
   const [jointBudgetInput, setJointBudgetInput] = useState("");
+  const [isSavingBudget, setIsSavingBudget] = useState(false);
 
   // 온보딩 모달
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -145,7 +146,10 @@ export default function HomeScreen() {
 
   // 예산 저장
   const saveBudget = async () => {
+    if (isSavingBudget) return;
+
     try {
+      setIsSavingBudget(true);
       const personalAmount =
         parseInt(personalBudgetInput.replace(/,/g, ""), 10) || 0;
       const jointAmount = parseInt(jointBudgetInput.replace(/,/g, ""), 10) || 0;
@@ -162,6 +166,8 @@ export default function HomeScreen() {
     } catch (error: any) {
       console.error("예산 저장 실패:", error);
       alert("예산 저장 실패: " + (error?.message || "알 수 없는 오류"));
+    } finally {
+      setIsSavingBudget(false);
     }
   };
 
@@ -1057,16 +1063,31 @@ export default function HomeScreen() {
 
             <View style={styles.modalButtons}>
               <TouchableOpacity
-                style={styles.modalCancelButton}
+                style={[
+                  styles.modalCancelButton,
+                  isSavingBudget && styles.modalButtonDisabled,
+                ]}
                 onPress={() => setShowBudgetModal(false)}
+                disabled={isSavingBudget}
               >
-                <Text style={styles.modalCancelText}>취소</Text>
+                <Text style={[
+                  styles.modalCancelText,
+                  isSavingBudget && styles.modalButtonTextDisabled,
+                ]}>취소</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={styles.modalSaveButton}
+                style={[
+                  styles.modalSaveButton,
+                  isSavingBudget && styles.modalSaveButtonDisabled,
+                ]}
                 onPress={saveBudget}
+                disabled={isSavingBudget}
               >
-                <Text style={styles.modalSaveText}>저장</Text>
+                {isSavingBudget ? (
+                  <ActivityIndicator size="small" color={colors.text.inverse} />
+                ) : (
+                  <Text style={styles.modalSaveText}>저장</Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -1894,5 +1915,15 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.base,
     fontWeight: typography.fontWeight.medium,
     color: colors.text.inverse,
+  },
+  modalButtonDisabled: {
+    opacity: 0.5,
+  },
+  modalButtonTextDisabled: {
+    color: colors.text.tertiary,
+  },
+  modalSaveButtonDisabled: {
+    backgroundColor: colors.primary.light,
+    opacity: 0.6,
   },
 });
