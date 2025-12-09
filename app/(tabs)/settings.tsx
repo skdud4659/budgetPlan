@@ -12,47 +12,49 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { colors, typography, spacing, borderRadius, shadows } from '../../src/styles';
-import { settingsService } from '../../src/services/settingsService';
+import { useSettings } from '../../src/contexts/SettingsContext';
 import { assetService } from '../../src/services/assetService';
 import { supabase } from '../../src/config/supabase';
-import type { AppSettings, Asset, User } from '../../src/types';
+import type { Asset } from '../../src/types';
 
 export default function SettingsScreen() {
-  const [settings, setSettings] = useState<AppSettings | null>(null);
-  const [jointBudgetEnabled, setJointBudgetEnabled] = useState(false);
+  const {
+    settings,
+    jointBudgetEnabled,
+    updateJointBudgetEnabled,
+    updateMonthStartDay,
+    updateDefaultAssetId,
+  } = useSettings();
+
   const [showMonthStartDayModal, setShowMonthStartDayModal] = useState(false);
   const [showDefaultAssetModal, setShowDefaultAssetModal] = useState(false);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [userEmail, setUserEmail] = useState<string>('');
 
-  // 설정 불러오기
-  const loadSettings = useCallback(async () => {
+  // 자산 및 사용자 정보 불러오기
+  const loadData = useCallback(async () => {
     try {
-      const [settingsData, assetsData, { data: { user } }] = await Promise.all([
-        settingsService.getSettings(),
+      const [assetsData, { data: { user } }] = await Promise.all([
         assetService.getAssets(),
         supabase.auth.getUser(),
       ]);
-      setSettings(settingsData);
-      setJointBudgetEnabled(settingsData.jointBudgetEnabled);
       setAssets(assetsData);
       if (user?.email) {
         setUserEmail(user.email);
       }
     } catch (error) {
-      console.log('Error loading settings:', error);
+      console.log('Error loading data:', error);
     }
   }, []);
 
   useEffect(() => {
-    loadSettings();
-  }, [loadSettings]);
+    loadData();
+  }, [loadData]);
 
   // 월 시작일 변경
   const handleMonthStartDayChange = async (day: number) => {
     try {
-      await settingsService.updateSettings({ monthStartDay: day });
-      setSettings(prev => prev ? { ...prev, monthStartDay: day } : null);
+      await updateMonthStartDay(day);
       setShowMonthStartDayModal(false);
     } catch (error) {
       console.log('Error updating month start day:', error);
@@ -62,20 +64,16 @@ export default function SettingsScreen() {
   // 공동 예산 모드 변경
   const handleJointBudgetChange = async (value: boolean) => {
     try {
-      setJointBudgetEnabled(value);
-      await settingsService.updateSettings({ jointBudgetEnabled: value });
-      setSettings(prev => prev ? { ...prev, jointBudgetEnabled: value } : null);
+      await updateJointBudgetEnabled(value);
     } catch (error) {
       console.log('Error updating joint budget:', error);
-      setJointBudgetEnabled(!value);
     }
   };
 
   // 기본 자산 변경
   const handleDefaultAssetChange = async (assetId: string | null) => {
     try {
-      await settingsService.updateSettings({ defaultAssetId: assetId });
-      setSettings(prev => prev ? { ...prev, defaultAssetId: assetId } : null);
+      await updateDefaultAssetId(assetId);
       setShowDefaultAssetModal(false);
     } catch (error) {
       console.log('Error updating default asset:', error);

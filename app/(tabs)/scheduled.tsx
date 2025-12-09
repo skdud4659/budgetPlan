@@ -19,27 +19,24 @@ import {
 } from "../../src/styles";
 import type { FixedItem, FixedItemType, BudgetType } from "../../src/types";
 import { fixedItemService } from "../../src/services/fixedItemService";
-import { settingsService } from "../../src/services/settingsService";
+import { useSettings } from "../../src/contexts/SettingsContext";
 import AddFixedItemSheet from "../../src/components/AddFixedItemSheet";
 import ConfirmModal from "../../src/components/ConfirmModal";
 
 export default function ScheduledScreen() {
+  const { jointBudgetEnabled } = useSettings();
+
   const [fixedItems, setFixedItems] = useState<FixedItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showAddSheet, setShowAddSheet] = useState(false);
   const [editingItem, setEditingItem] = useState<FixedItem | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<FixedItem | null>(null);
-  const [jointBudgetEnabled, setJointBudgetEnabled] = useState(false);
 
   // 정기지출 목록 불러오기
   const loadFixedItems = useCallback(async () => {
     try {
-      const [data, settings] = await Promise.all([
-        fixedItemService.getFixedItems(),
-        settingsService.getSettings(),
-      ]);
+      const data = await fixedItemService.getFixedItems();
       setFixedItems(data);
-      setJointBudgetEnabled(settings.jointBudgetEnabled);
     } catch (error: any) {
       console.log("Error loading fixed items:", error.message);
     } finally {

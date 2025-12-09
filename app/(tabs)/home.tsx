@@ -25,13 +25,13 @@ import {
 import type {
   BudgetType,
   FixedItem,
-  AppSettings,
   Transaction,
   TransactionType,
 } from "../../src/types";
 import { fixedItemService } from "../../src/services/fixedItemService";
 import { settingsService } from "../../src/services/settingsService";
 import { transactionService } from "../../src/services/transactionService";
+import { useSettings } from "../../src/contexts/SettingsContext";
 import AddTransactionSheet from "../../src/components/AddTransactionSheet";
 import ConfirmModal from "../../src/components/ConfirmModal";
 import JointBudgetOnboardingModal from "../../src/components/JointBudgetOnboardingModal";
@@ -41,6 +41,17 @@ type ViewMode = "list" | "calendar";
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
 
 export default function HomeScreen() {
+  const {
+    settings,
+    jointBudgetEnabled,
+    monthStartDay,
+    personalBudget,
+    jointBudget,
+    updateJointBudgetEnabled,
+    updateBudgets,
+    refreshSettings,
+  } = useSettings();
+
   const [selectedMonth, setSelectedMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [selectedBudgetType, setSelectedBudgetType] = useState<
@@ -48,9 +59,7 @@ export default function HomeScreen() {
   >("all");
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [fixedItems, setFixedItems] = useState<FixedItem[]>([]);
-  const [settings, setSettings] = useState<AppSettings | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [jointBudgetEnabled, setJointBudgetEnabled] = useState(false);
 
   // 거래 추가/수정 모달
   const [showAddTransaction, setShowAddTransaction] = useState(false);
@@ -79,13 +88,9 @@ export default function HomeScreen() {
       const year = selectedMonth.getFullYear();
       const month = selectedMonth.getMonth() + 1;
 
-      const [items, appSettings] = await Promise.all([
-        fixedItemService.getFixedItems(),
-        settingsService.getSettings(),
-      ]);
+      const items = await fixedItemService.getFixedItems();
 
       // 월 시작일 기준으로 거래 조회
-      const monthStartDay = appSettings?.monthStartDay || 1;
       const monthlyTransactions = await transactionService.getTransactionsWithInstallmentsByStartDay(
         year,
         month,
@@ -93,12 +98,10 @@ export default function HomeScreen() {
       );
 
       setFixedItems(items);
-      setSettings(appSettings);
       setTransactions(monthlyTransactions);
-      setJointBudgetEnabled(appSettings.jointBudgetEnabled);
 
       // 온보딩 미완료 시 모달 표시
-      if (!appSettings.onboardingCompleted) {
+      if (settings && !settings.onboardingCompleted) {
         setShowOnboarding(true);
       }
     } catch (error) {
@@ -106,7 +109,7 @@ export default function HomeScreen() {
     } finally {
       setIsLoading(false);
     }
-  }, [selectedMonth]);
+  }, [selectedMonth, monthStartDay, settings]);
 
   useEffect(() => {
     loadData();
@@ -123,12 +126,10 @@ export default function HomeScreen() {
   const openBudgetModal = (type: "all" | BudgetType) => {
     setEditingBudgetType(type);
     setPersonalBudgetInput(
-      settings?.personalBudget
-        ? settings.personalBudget.toLocaleString("ko-KR")
-        : ""
+      personalBudget ? personalBudget.toLocaleString("ko-KR") : ""
     );
     setJointBudgetInput(
-      settings?.jointBudget ? settings.jointBudget.toLocaleString("ko-KR") : ""
+      jointBudget ? jointBudget.toLocaleString("ko-KR") : ""
     );
     setShowBudgetModal(true);
   };
@@ -149,20 +150,14 @@ export default function HomeScreen() {
         parseInt(personalBudgetInput.replace(/,/g, ""), 10) || 0;
       const jointAmount = parseInt(jointBudgetInput.replace(/,/g, ""), 10) || 0;
 
-      let updates: { personalBudget?: number; jointBudget?: number } = {};
-
       if (editingBudgetType === "all") {
-        updates = { personalBudget: personalAmount, jointBudget: jointAmount };
+        await updateBudgets(personalAmount, jointAmount);
       } else if (editingBudgetType === "personal") {
-        updates = { personalBudget: personalAmount };
+        await updateBudgets(personalAmount, jointBudget);
       } else {
-        updates = { jointBudget: jointAmount };
+        await updateBudgets(personalBudget, jointAmount);
       }
 
-      console.log("예산 저장 시도:", updates);
-      const updatedSettings = await settingsService.updateSettings(updates);
-      console.log("예산 저장 성공:", updatedSettings);
-      setSettings(updatedSettings);
       setShowBudgetModal(false);
     } catch (error: any) {
       console.error("예산 저장 실패:", error);
@@ -217,11 +212,9 @@ export default function HomeScreen() {
   // 온보딩 - 공동 예산 사용 선택
   const handleSelectJointBudget = async () => {
     try {
-      await settingsService.updateSettings({
-        jointBudgetEnabled: true,
-        onboardingCompleted: true,
-      });
-      setJointBudgetEnabled(true);
+      await updateJointBudgetEnabled(true);
+      await settingsService.updateSettings({ onboardingCompleted: true });
+      await refreshSettings();
       setShowOnboarding(false);
     } catch (error) {
       console.error("설정 저장 실패:", error);
@@ -231,11 +224,9 @@ export default function HomeScreen() {
   // 온보딩 - 개인 예산만 사용 선택
   const handleSelectPersonalOnly = async () => {
     try {
-      await settingsService.updateSettings({
-        jointBudgetEnabled: false,
-        onboardingCompleted: true,
-      });
-      setJointBudgetEnabled(false);
+      await updateJointBudgetEnabled(false);
+      await settingsService.updateSettings({ onboardingCompleted: true });
+      await refreshSettings();
       setShowOnboarding(false);
     } catch (error) {
       console.error("설정 저장 실패:", error);
@@ -294,24 +285,23 @@ export default function HomeScreen() {
   // 필터별 예산 및 잔여 계산
   const getBudgetInfo = () => {
     if (selectedBudgetType === "all") {
-      const totalBudget =
-        (settings?.personalBudget || 0) + (settings?.jointBudget || 0);
+      const totalBudgetAmount = personalBudget + jointBudget;
       return {
-        budget: totalBudget,
+        budget: totalBudgetAmount,
         spent: totalExpense,
-        remaining: totalBudget - totalExpense,
+        remaining: totalBudgetAmount - totalExpense,
       };
     } else if (selectedBudgetType === "personal") {
       return {
-        budget: settings?.personalBudget || 0,
+        budget: personalBudget,
         spent: personalExpense,
-        remaining: (settings?.personalBudget || 0) - personalExpense,
+        remaining: personalBudget - personalExpense,
       };
     } else {
       return {
-        budget: settings?.jointBudget || 0,
+        budget: jointBudget,
         spent: jointExpense,
-        remaining: (settings?.jointBudget || 0) - jointExpense,
+        remaining: jointBudget - jointExpense,
       };
     }
   };

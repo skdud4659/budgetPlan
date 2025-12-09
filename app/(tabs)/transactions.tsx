@@ -12,32 +12,29 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors, typography, spacing, borderRadius, shadows } from '../../src/styles';
 import type { Transaction } from '../../src/types';
 import { transactionService } from '../../src/services/transactionService';
-import { settingsService } from '../../src/services/settingsService';
+import { useSettings } from '../../src/contexts/SettingsContext';
 import AddTransactionSheet from '../../src/components/AddTransactionSheet';
 
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
 
 export default function TransactionsScreen() {
+  const { jointBudgetEnabled } = useSettings();
+
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showAddSheet, setShowAddSheet] = useState(false);
-  const [jointBudgetEnabled, setJointBudgetEnabled] = useState(false);
 
   // 데이터 로드
   const loadTransactions = useCallback(async () => {
     try {
       setIsLoading(true);
-      const [data, settings] = await Promise.all([
-        transactionService.getTransactions(
-          currentMonth.getFullYear(),
-          currentMonth.getMonth() + 1
-        ),
-        settingsService.getSettings(),
-      ]);
+      const data = await transactionService.getTransactions(
+        currentMonth.getFullYear(),
+        currentMonth.getMonth() + 1
+      );
       setTransactions(data);
-      setJointBudgetEnabled(settings.jointBudgetEnabled);
     } catch (error) {
       console.error('거래 내역 로드 실패:', error);
     } finally {
