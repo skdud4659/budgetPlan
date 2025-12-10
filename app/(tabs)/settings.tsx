@@ -225,7 +225,11 @@ export default function SettingsScreen() {
           <Text style={styles.sectionTitle}>지원</Text>
 
           <View style={styles.settingCard}>
-            <TouchableOpacity style={styles.settingItem} activeOpacity={0.7}>
+            <TouchableOpacity
+              style={styles.settingItem}
+              activeOpacity={0.7}
+              onPress={() => router.push('/help')}
+            >
               <View style={styles.settingLeft}>
                 <View style={[styles.settingIcon, { backgroundColor: '#E3F2FD' }]}>
                   <Ionicons name="help-circle" size={18} color="#2196F3" />
@@ -237,7 +241,11 @@ export default function SettingsScreen() {
 
             <View style={styles.settingDivider} />
 
-            <TouchableOpacity style={styles.settingItem} activeOpacity={0.7}>
+            <TouchableOpacity
+              style={styles.settingItem}
+              activeOpacity={0.7}
+              onPress={() => router.push('/inquiry')}
+            >
               <View style={styles.settingLeft}>
                 <View style={[styles.settingIcon, { backgroundColor: '#E8F5E9' }]}>
                   <Ionicons name="chatbubble-ellipses" size={18} color="#4CAF50" />
@@ -249,7 +257,11 @@ export default function SettingsScreen() {
 
             <View style={styles.settingDivider} />
 
-            <TouchableOpacity style={styles.settingItem} activeOpacity={0.7}>
+            <TouchableOpacity
+              style={styles.settingItem}
+              activeOpacity={0.7}
+              onPress={() => router.push('/terms')}
+            >
               <View style={styles.settingLeft}>
                 <View style={[styles.settingIcon, { backgroundColor: '#F3E5F5' }]}>
                   <Ionicons name="document-text" size={18} color="#9C27B0" />
@@ -261,7 +273,11 @@ export default function SettingsScreen() {
 
             <View style={styles.settingDivider} />
 
-            <TouchableOpacity style={styles.settingItem} activeOpacity={0.7}>
+            <TouchableOpacity
+              style={styles.settingItem}
+              activeOpacity={0.7}
+              onPress={() => router.push('/privacy')}
+            >
               <View style={styles.settingLeft}>
                 <View style={[styles.settingIcon, { backgroundColor: '#FBE9E7' }]}>
                   <Ionicons name="shield" size={18} color="#FF5722" />

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from 'expo-router';
 import { colors, typography, spacing, borderRadius, shadows } from '../../src/styles';
 import type { Transaction } from '../../src/types';
 import { transactionService } from '../../src/services/transactionService';
@@ -42,9 +43,12 @@ export default function TransactionsScreen() {
     }
   }, [currentMonth]);
 
-  useEffect(() => {
-    loadTransactions();
-  }, [loadTransactions]);
+  // 탭이 포커스될 때마다 데이터 새로고침
+  useFocusEffect(
+    useCallback(() => {
+      loadTransactions();
+    }, [loadTransactions])
+  );
 
   const formatCurrency = (amount: number) => {
     return amount.toLocaleString('ko-KR') + '원';

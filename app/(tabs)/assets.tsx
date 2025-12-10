@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Swipeable } from 'react-native-gesture-handler';
+import { useFocusEffect } from 'expo-router';
 import { colors, typography, spacing, borderRadius, shadows, assetTypeConfig } from '../../src/styles';
 import type { Asset, AssetType } from '../../src/types';
 import { assetService } from '../../src/services/assetService';
@@ -62,9 +63,12 @@ export default function AssetsScreen() {
     }
   }, []);
 
-  useEffect(() => {
-    loadAssets();
-  }, [loadAssets]);
+  // 탭이 포커스될 때마다 데이터 새로고침
+  useFocusEffect(
+    useCallback(() => {
+      loadAssets();
+    }, [loadAssets])
+  );
 
   // 자산 추가/수정 처리
   const handleSubmitAsset = async (data: {

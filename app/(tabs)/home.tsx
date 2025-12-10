@@ -15,6 +15,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Swipeable } from "react-native-gesture-handler";
+import { useFocusEffect } from "expo-router";
 import {
   colors,
   typography,
@@ -112,9 +113,12 @@ export default function HomeScreen() {
     }
   }, [selectedMonth, monthStartDay, settings]);
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  // 탭이 포커스될 때마다 데이터 새로고침
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [loadData])
+  );
 
   // 금액 포맷팅 (천 단위 콤마)
   const formatNumberWithComma = (value: string) => {

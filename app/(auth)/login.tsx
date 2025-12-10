@@ -9,12 +9,14 @@ import {
   Platform,
   ScrollView,
   ActivityIndicator,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Link, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, typography, spacing, borderRadius, shadows } from '../../src/styles';
 import { authService } from '../../src/services/authService';
+import { kakaoAuthService } from '../../src/services/kakaoAuthService';
 import ConfirmModal from '../../src/components/ConfirmModal';
 
 export default function LoginScreen() {
@@ -24,6 +26,7 @@ export default function LoginScreen() {
   const [isLoading, setIsLoading] = useState(false);
   const [emailFocused, setEmailFocused] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
+  const [isKakaoLoading, setIsKakaoLoading] = useState(false);
   const [alertModal, setAlertModal] = useState<{
     visible: boolean;
     title: string;
@@ -32,6 +35,20 @@ export default function LoginScreen() {
 
   const showAlert = (title: string, message: string) => {
     setAlertModal({ visible: true, title, message });
+  };
+
+  const handleKakaoLogin = async () => {
+    setIsKakaoLoading(true);
+    try {
+      await kakaoAuthService.signInWithKakao();
+      router.replace('/(tabs)/home');
+    } catch (error: any) {
+      if (error.message !== '로그인이 취소되었습니다.') {
+        showAlert('카카오 로그인 실패', error.message || '카카오 로그인에 실패했습니다.');
+      }
+    } finally {
+      setIsKakaoLoading(false);
+    }
   };
 
   const handleLogin = async () => {
@@ -142,7 +159,10 @@ export default function LoginScreen() {
             </View>
 
             {/* Forgot Password */}
-            <TouchableOpacity style={styles.forgotButton}>
+            <TouchableOpacity
+              style={styles.forgotButton}
+              onPress={() => router.push('/(auth)/forgot-password')}
+            >
               <Text style={styles.forgotText}>비밀번호를 잊으셨나요?</Text>
             </TouchableOpacity>
 
@@ -173,15 +193,27 @@ export default function LoginScreen() {
               <View style={styles.divider} />
             </View>
 
-            {/* Social Login */}
-            <View style={styles.socialContainer}>
-              <TouchableOpacity style={styles.socialButton}>
-                <Ionicons name="logo-google" size={22} color="#DB4437" />
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.socialButton}>
-                <Ionicons name="logo-apple" size={22} color="#000000" />
-              </TouchableOpacity>
-            </View>
+            {/* Kakao Login */}
+            <TouchableOpacity
+              style={[styles.kakaoButton, isKakaoLoading && styles.kakaoButtonDisabled]}
+              onPress={handleKakaoLogin}
+              disabled={isKakaoLoading}
+              activeOpacity={0.8}
+            >
+              {isKakaoLoading ? (
+                <View style={styles.loadingRow}>
+                  <ActivityIndicator size="small" color="#000000" />
+                  <Text style={styles.kakaoButtonText}>로그인 중...</Text>
+                </View>
+              ) : (
+                <View style={styles.kakaoButtonContent}>
+                  <View style={styles.kakaoIconContainer}>
+                    <Text style={styles.kakaoIcon}>💬</Text>
+                  </View>
+                  <Text style={styles.kakaoButtonText}>카카오로 시작하기</Text>
+                </View>
+              )}
+            </TouchableOpacity>
           </View>
 
           {/* Sign Up Link */}
@@ -328,21 +360,32 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.md,
     color: colors.text.tertiary,
   },
-  socialContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: spacing.base,
-  },
-  socialButton: {
-    width: 52,
-    height: 52,
+  kakaoButton: {
+    backgroundColor: '#FEE500',
     borderRadius: borderRadius.base,
-    backgroundColor: colors.background.secondary,
-    borderWidth: 1,
-    borderColor: colors.border.light,
+    height: 52,
     alignItems: 'center',
     justifyContent: 'center',
     ...shadows.sm,
+  },
+  kakaoButtonDisabled: {
+    opacity: 0.6,
+  },
+  kakaoButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  kakaoIconContainer: {
+    marginRight: spacing.sm,
+  },
+  kakaoIcon: {
+    fontSize: 20,
+  },
+  kakaoButtonText: {
+    fontSize: typography.fontSize.base,
+    fontWeight: typography.fontWeight.semiBold,
+    color: '#000000',
   },
   footer: {
     flexDirection: 'row',
