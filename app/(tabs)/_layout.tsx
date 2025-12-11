@@ -18,12 +18,12 @@ export default function TabLayout() {
       }}
     >
       <Tabs.Screen
-        name="home"
+        name="transactions"
         options={{
-          title: '가계부',
+          title: '내역',
           tabBarIcon: ({ focused, color }) => (
             <TabIcon
-              name={focused ? 'wallet' : 'wallet-outline'}
+              name={focused ? 'receipt' : 'receipt-outline'}
               color={color}
               focused={focused}
             />
@@ -31,22 +31,28 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="transactions"
+        name="budget"
         options={{
-          href: null, // 탭바에서 숨김
+          title: '예산',
+          tabBarIcon: ({ focused, color }) => (
+            <TabIcon
+              name={focused ? 'calculator' : 'calculator-outline'}
+              color={color}
+              focused={focused}
+            />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="home"
+        options={{
+          href: null, // 숨김 (내역 탭으로 대체)
         }}
       />
       <Tabs.Screen
         name="scheduled"
         options={{
-          title: '정기지출',
-          tabBarIcon: ({ focused, color }) => (
-            <TabIcon
-              name={focused ? 'repeat' : 'repeat-outline'}
-              color={color}
-              focused={focused}
-            />
-          ),
+          href: null, // 숨김 (예산 탭으로 통합)
         }}
       />
       <Tabs.Screen

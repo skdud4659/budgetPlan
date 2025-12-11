@@ -140,7 +140,7 @@ export default function SettingsScreen() {
                 <View style={styles.settingTextContainer}>
                   <Text style={styles.settingLabel}>월 시작일</Text>
                   <Text style={styles.settingDescription}>
-                    매월 이 날짜부터 새로운 달로 계산해요
+                    이 날짜부터 새로운 예산 기간이 시작돼요
                   </Text>
                 </View>
               </View>
@@ -318,7 +318,7 @@ export default function SettingsScreen() {
           <View style={styles.modalContainer}>
             <Text style={styles.modalTitle}>월 시작일 선택</Text>
             <Text style={styles.modalDescription}>
-              매월 이 날짜가 되면 할부 회차가 자동으로 증가해요
+              이 날짜부터 새로운 예산 기간이 시작되고 정기지출이 자동 생성돼요
             </Text>
             <ScrollView style={styles.dayList} showsVerticalScrollIndicator={false}>
               {[1, 5, 10, 15, 20, 25].map((day) => (

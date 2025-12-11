@@ -15,7 +15,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Swipeable } from "react-native-gesture-handler";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, router } from "expo-router";
 import {
   colors,
   typography,
@@ -496,41 +496,49 @@ export default function HomeScreen() {
             />
           </TouchableOpacity>
         </View>
-        <View style={styles.viewModeToggle}>
+        <View style={styles.headerRight}>
           <TouchableOpacity
-            style={[
-              styles.viewModeButton,
-              viewMode === "list" && styles.viewModeButtonActive,
-            ]}
-            onPress={() => setViewMode("list")}
+            style={styles.statsButton}
+            onPress={() => router.push('/statistics')}
           >
-            <Ionicons
-              name="list"
-              size={18}
-              color={
-                viewMode === "list"
-                  ? colors.text.inverse
-                  : colors.text.secondary
-              }
-            />
+            <Ionicons name="stats-chart" size={20} color={colors.primary.main} />
           </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.viewModeButton,
-              viewMode === "calendar" && styles.viewModeButtonActive,
-            ]}
-            onPress={() => setViewMode("calendar")}
-          >
-            <Ionicons
-              name="calendar"
-              size={18}
-              color={
-                viewMode === "calendar"
-                  ? colors.text.inverse
-                  : colors.text.secondary
-              }
-            />
-          </TouchableOpacity>
+          <View style={styles.viewModeToggle}>
+            <TouchableOpacity
+              style={[
+                styles.viewModeButton,
+                viewMode === "list" && styles.viewModeButtonActive,
+              ]}
+              onPress={() => setViewMode("list")}
+            >
+              <Ionicons
+                name="list"
+                size={18}
+                color={
+                  viewMode === "list"
+                    ? colors.text.inverse
+                    : colors.text.secondary
+                }
+              />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.viewModeButton,
+                viewMode === "calendar" && styles.viewModeButtonActive,
+              ]}
+              onPress={() => setViewMode("calendar")}
+            >
+              <Ionicons
+                name="calendar"
+                size={18}
+                color={
+                  viewMode === "calendar"
+                    ? colors.text.inverse
+                    : colors.text.secondary
+                }
+              />
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
 
@@ -1397,6 +1405,19 @@ const styles = StyleSheet.create({
   },
   viewModeButtonActive: {
     backgroundColor: colors.primary.main,
+  },
+  headerRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  statsButton: {
+    width: 36,
+    height: 36,
+    borderRadius: borderRadius.base,
+    backgroundColor: colors.primary.light + "30",
+    alignItems: "center",
+    justifyContent: "center",
   },
   scrollView: {
     flex: 1,

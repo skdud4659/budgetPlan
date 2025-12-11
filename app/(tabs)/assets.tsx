@@ -10,6 +10,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Swipeable } from 'react-native-gesture-handler';
+import DraggableFlatList, { RenderItemParams, ScaleDecorator } from 'react-native-draggable-flatlist';
 import { useFocusEffect } from 'expo-router';
 import { colors, typography, spacing, borderRadius, shadows, assetTypeConfig } from '../../src/styles';
 import type { Asset, AssetType } from '../../src/types';
@@ -18,6 +19,9 @@ import { transactionService } from '../../src/services/transactionService';
 import AddAssetSheet from '../../src/components/AddAssetSheet';
 import AssetDetailSheet from '../../src/components/AssetDetailSheet';
 import ConfirmModal from '../../src/components/ConfirmModal';
+
+// 자산 타입 순서 정의
+const DEFAULT_TYPE_ORDER: AssetType[] = ['bank', 'card', 'cash', 'savings', 'investment', 'insurance', 'emoney', 'point', 'loan', 'other'];
 
 type CardBillingInfo = {
   [assetId: string]: { currentBilling: number; nextBilling: number };
@@ -31,6 +35,8 @@ export default function AssetsScreen() {
   const [deleteTarget, setDeleteTarget] = useState<Asset | null>(null);
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const [cardBillingInfo, setCardBillingInfo] = useState<CardBillingInfo>({});
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [typeOrder, setTypeOrder] = useState<AssetType[]>(DEFAULT_TYPE_ORDER);
 
   // 자산 목록 불러오기
   const loadAssets = useCallback(async () => {
@@ -142,125 +148,215 @@ export default function AssetsScreen() {
     return Math.abs(amount).toLocaleString('ko-KR') + '원';
   };
 
-  // 자산 종류별 그룹핑
-  const groupedAssets = assets.reduce((acc, asset) => {
-    const group = acc.find((g) => g.type === asset.type);
-    if (group) {
-      group.assets.push(asset);
-    } else {
-      acc.push({ type: asset.type, assets: [asset] });
+  // 자산 종류별 그룹핑 (typeOrder 순서대로)
+  const groupedAssets = typeOrder
+    .map((type) => {
+      const typeAssets = assets.filter((asset) => asset.type === type);
+      return typeAssets.length > 0 ? { type, assets: typeAssets } : null;
+    })
+    .filter((group): group is { type: AssetType; assets: Asset[] } => group !== null);
+
+  // 드래그앤드롭으로 순서 변경
+  const handleDragEnd = ({ data }: { data: { type: AssetType; assets: Asset[] }[] }) => {
+    const newOrder = [...typeOrder];
+    // 현재 표시되는 그룹들의 새로운 순서를 typeOrder에 반영
+    const displayedTypes = data.map(g => g.type);
+    const nonDisplayedTypes = typeOrder.filter(t => !displayedTypes.includes(t));
+
+    // 표시되는 타입들을 새 순서로 재배치
+    let result: AssetType[] = [];
+    let displayedIndex = 0;
+
+    for (const type of typeOrder) {
+      if (displayedTypes.includes(type)) {
+        result.push(displayedTypes[displayedIndex]);
+        displayedIndex++;
+      } else {
+        result.push(type);
+      }
     }
-    return acc;
-  }, [] as { type: AssetType; assets: Asset[] }[]);
+
+    setTypeOrder(result);
+  };
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>자산</Text>
-        <TouchableOpacity
-          style={styles.addButton}
-          onPress={() => setShowAddSheet(true)}
-        >
-          <Ionicons name="add" size={24} color={colors.primary.main} />
-        </TouchableOpacity>
-      </View>
-
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Net Worth Card */}
-        <View style={styles.netWorthCard}>
-          <View style={styles.summaryHeader}>
-            <Text style={styles.summaryTitle}>순자산</Text>
-          </View>
-
-          <View style={styles.summaryItem}>
-            <View style={styles.summaryLabelRow}>
-              <View style={[styles.dot, { backgroundColor: colors.semantic.income }]} />
-              <Text style={styles.summaryLabel}>자산</Text>
-            </View>
-            <Text style={[styles.summaryAmount, styles.assetAmount]}>
-              {formatCurrency(totalAssets)}
-            </Text>
-          </View>
-
-          <View style={styles.summaryItem}>
-            <View style={styles.summaryLabelRow}>
-              <View style={[styles.dot, { backgroundColor: colors.semantic.expense }]} />
-              <Text style={styles.summaryLabel}>부채</Text>
-            </View>
-            <Text style={[styles.summaryAmount, styles.liabilityAmount]}>
-              -{formatCurrency(totalLiabilities)}
-            </Text>
-          </View>
-
-          <View style={styles.totalRow}>
-            <Text style={styles.totalLabel}>합계</Text>
-            <Text style={styles.totalAmount}>
-              {formatCurrency(netWorth)}
-            </Text>
-          </View>
-        </View>
-
-        {/* Asset List by Type */}
-        {groupedAssets.length > 0 ? (
-          groupedAssets.map((group, groupIndex) => (
-            <View
-              key={group.type}
-              style={[
-                styles.assetGroup,
-                groupIndex === groupedAssets.length - 1 && styles.assetGroupLast,
-              ]}
+        <View style={styles.headerRight}>
+          {isEditMode ? (
+            <TouchableOpacity
+              style={styles.editDoneButton}
+              onPress={() => setIsEditMode(false)}
             >
-              <View style={styles.groupHeader}>
-                <View
-                  style={[
-                    styles.groupIcon,
-                    { backgroundColor: assetTypeConfig[group.type].color + '20' },
-                  ]}
-                >
-                  <Ionicons
-                    name={getAssetIcon(group.type)}
-                    size={14}
-                    color={assetTypeConfig[group.type].color}
-                  />
-                </View>
-                <Text style={styles.groupTitle}>
-                  {assetTypeConfig[group.type].label}
-                </Text>
-              </View>
-              <View style={styles.assetList}>
-                {group.assets.map((asset, index) => (
-                  <AssetCard
-                    key={asset.id}
-                    asset={asset}
-                    isLast={index === group.assets.length - 1}
-                    onPress={() => handleViewAsset(asset)}
-                    onDelete={() => handleDeleteAsset(asset)}
-                    billingInfo={cardBillingInfo[asset.id]}
-                  />
-                ))}
-              </View>
-            </View>
-          ))
-        ) : (
-          !isLoading && (
-            <View style={styles.emptyContainer}>
-              <Ionicons name="wallet-outline" size={64} color={colors.text.tertiary} />
-              <Text style={styles.emptyText}>등록된 자산이 없습니다</Text>
+              <Text style={styles.editDoneText}>완료</Text>
+            </TouchableOpacity>
+          ) : (
+            <>
               <TouchableOpacity
-                style={styles.emptyButton}
+                style={styles.editButton}
+                onPress={() => setIsEditMode(true)}
+              >
+                <Ionicons name="reorder-three" size={24} color={colors.text.secondary} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.addButton}
                 onPress={() => setShowAddSheet(true)}
               >
-                <Text style={styles.emptyButtonText}>자산 추가하기</Text>
+                <Ionicons name="add" size={24} color={colors.primary.main} />
               </TouchableOpacity>
+            </>
+          )}
+        </View>
+      </View>
+
+      {isEditMode ? (
+        /* 편집 모드: 드래그앤드롭으로 순서 변경 */
+        <View style={styles.editModeContainer}>
+          <View style={styles.editModeHeader}>
+            <Text style={styles.editModeTitle}>자산 그룹 순서 변경</Text>
+            <Text style={styles.editModeSubtitle}>길게 눌러서 드래그하세요</Text>
+          </View>
+          <DraggableFlatList
+            data={groupedAssets}
+            keyExtractor={(item) => item.type}
+            onDragEnd={handleDragEnd}
+            renderItem={({ item, drag, isActive }: RenderItemParams<{ type: AssetType; assets: Asset[] }>) => (
+              <ScaleDecorator>
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  onLongPress={drag}
+                  disabled={isActive}
+                  style={[
+                    styles.draggableItem,
+                    isActive && styles.draggableItemActive,
+                  ]}
+                >
+                  <View style={styles.dragHandle}>
+                    <Ionicons name="menu" size={20} color={colors.text.tertiary} />
+                  </View>
+                  <View
+                    style={[
+                      styles.groupIcon,
+                      { backgroundColor: assetTypeConfig[item.type].color + '20' },
+                    ]}
+                  >
+                    <Ionicons
+                      name={getAssetIcon(item.type)}
+                      size={14}
+                      color={assetTypeConfig[item.type].color}
+                    />
+                  </View>
+                  <Text style={styles.draggableItemText}>
+                    {assetTypeConfig[item.type].label}
+                  </Text>
+                  <Text style={styles.draggableItemCount}>
+                    {item.assets.length}개
+                  </Text>
+                </TouchableOpacity>
+              </ScaleDecorator>
+            )}
+            contentContainerStyle={styles.draggableListContent}
+          />
+        </View>
+      ) : (
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Net Worth Card */}
+          <View style={styles.netWorthCard}>
+            <View style={styles.summaryHeader}>
+              <Text style={styles.summaryTitle}>순자산</Text>
             </View>
-          )
-        )}
-      </ScrollView>
+
+            <View style={styles.summaryItem}>
+              <View style={styles.summaryLabelRow}>
+                <View style={[styles.dot, { backgroundColor: colors.semantic.income }]} />
+                <Text style={styles.summaryLabel}>자산</Text>
+              </View>
+              <Text style={[styles.summaryAmount, styles.assetAmount]}>
+                {formatCurrency(totalAssets)}
+              </Text>
+            </View>
+
+            <View style={styles.summaryItem}>
+              <View style={styles.summaryLabelRow}>
+                <View style={[styles.dot, { backgroundColor: colors.semantic.expense }]} />
+                <Text style={styles.summaryLabel}>부채</Text>
+              </View>
+              <Text style={[styles.summaryAmount, styles.liabilityAmount]}>
+                -{formatCurrency(totalLiabilities)}
+              </Text>
+            </View>
+
+            <View style={styles.totalRow}>
+              <Text style={styles.totalLabel}>합계</Text>
+              <Text style={styles.totalAmount}>
+                {formatCurrency(netWorth)}
+              </Text>
+            </View>
+          </View>
+
+          {/* Asset List by Type */}
+          {groupedAssets.length > 0 ? (
+            groupedAssets.map((group, groupIndex) => (
+              <View
+                key={group.type}
+                style={[
+                  styles.assetGroup,
+                  groupIndex === groupedAssets.length - 1 && styles.assetGroupLast,
+                ]}
+              >
+                <View style={styles.groupHeader}>
+                  <View
+                    style={[
+                      styles.groupIcon,
+                      { backgroundColor: assetTypeConfig[group.type].color + '20' },
+                    ]}
+                  >
+                    <Ionicons
+                      name={getAssetIcon(group.type)}
+                      size={14}
+                      color={assetTypeConfig[group.type].color}
+                    />
+                  </View>
+                  <Text style={styles.groupTitle}>
+                    {assetTypeConfig[group.type].label}
+                  </Text>
+                </View>
+                <View style={styles.assetList}>
+                  {group.assets.map((asset, index) => (
+                    <AssetCard
+                      key={asset.id}
+                      asset={asset}
+                      isLast={index === group.assets.length - 1}
+                      onPress={() => handleViewAsset(asset)}
+                      onDelete={() => handleDeleteAsset(asset)}
+                      billingInfo={cardBillingInfo[asset.id]}
+                    />
+                  ))}
+                </View>
+              </View>
+            ))
+          ) : (
+            !isLoading && (
+              <View style={styles.emptyContainer}>
+                <Ionicons name="wallet-outline" size={64} color={colors.text.tertiary} />
+                <Text style={styles.emptyText}>등록된 자산이 없습니다</Text>
+                <TouchableOpacity
+                  style={styles.emptyButton}
+                  onPress={() => setShowAddSheet(true)}
+                >
+                  <Text style={styles.emptyButtonText}>자산 추가하기</Text>
+                </TouchableOpacity>
+              </View>
+            )
+          )}
+        </ScrollView>
+      )}
 
       {/* 자산 상세 시트 */}
       <AssetDetailSheet
@@ -433,6 +529,29 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.xl,
     fontWeight: typography.fontWeight.bold,
     color: colors.text.primary,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  editButton: {
+    width: 40,
+    height: 40,
+    borderRadius: borderRadius.base,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  editDoneButton: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: borderRadius.base,
+    backgroundColor: colors.primary.main,
+  },
+  editDoneText: {
+    fontSize: typography.fontSize.base,
+    fontWeight: typography.fontWeight.semiBold,
+    color: colors.text.inverse,
   },
   addButton: {
     width: 40,
@@ -626,5 +745,52 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.md,
     fontWeight: typography.fontWeight.semiBold,
     color: colors.text.inverse,
+  },
+  editModeContainer: {
+    flex: 1,
+    paddingHorizontal: spacing.lg,
+  },
+  editModeHeader: {
+    marginBottom: spacing.lg,
+  },
+  editModeTitle: {
+    fontSize: typography.fontSize.lg,
+    fontWeight: typography.fontWeight.semiBold,
+    color: colors.text.primary,
+    marginBottom: spacing.xs,
+  },
+  editModeSubtitle: {
+    fontSize: typography.fontSize.sm,
+    color: colors.text.tertiary,
+  },
+  draggableListContent: {
+    paddingBottom: spacing['3xl'],
+  },
+  draggableItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.background.secondary,
+    borderRadius: borderRadius.lg,
+    padding: spacing.base,
+    marginBottom: spacing.sm,
+    ...shadows.sm,
+  },
+  draggableItemActive: {
+    backgroundColor: colors.primary.light + '30',
+    ...shadows.md,
+  },
+  dragHandle: {
+    marginRight: spacing.md,
+  },
+  draggableItemText: {
+    flex: 1,
+    fontSize: typography.fontSize.base,
+    fontWeight: typography.fontWeight.medium,
+    color: colors.text.primary,
+    marginLeft: spacing.sm,
+  },
+  draggableItemCount: {
+    fontSize: typography.fontSize.sm,
+    color: colors.text.tertiary,
   },
 });

@@ -1,6 +1,7 @@
 import { supabase } from "../config/supabase";
-import type { Transaction, TransactionType, BudgetType } from "../types";
+import type { Transaction, TransactionType, BudgetType, FixedItem } from "../types";
 import { assetService } from "./assetService";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // DB 스네이크케이스 → 앱 카멜케이스 변환
 const transformTransaction = (row: any): Transaction => ({
@@ -603,5 +604,163 @@ export const transactionService = {
       personalExpense,
       jointExpense,
     };
+  },
+
+  // 정기지출을 거래로 자동 생성 (월 시작일 기준)
+  async generateFixedTransactions(
+    fixedItems: FixedItem[],
+    monthStartDay: number
+  ): Promise<{ generated: number; skipped: number }> {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) throw new Error("로그인이 필요합니다.");
+
+    const today = new Date();
+    const currentYear = today.getFullYear();
+    const currentMonth = today.getMonth() + 1;
+    const currentDay = today.getDate();
+
+    // 현재 기간의 시작일과 종료일 계산
+    let periodStartYear = currentYear;
+    let periodStartMonth = currentMonth;
+    let periodEndYear = currentYear;
+    let periodEndMonth = currentMonth;
+
+    if (monthStartDay === 1) {
+      // 월 시작일이 1일이면 현재 달
+      periodStartYear = currentYear;
+      periodStartMonth = currentMonth;
+      periodEndYear = currentMonth === 12 ? currentYear + 1 : currentYear;
+      periodEndMonth = currentMonth === 12 ? 1 : currentMonth + 1;
+    } else {
+      // 월 시작일이 1일이 아닌 경우
+      if (currentDay >= monthStartDay) {
+        // 현재 날짜가 시작일 이후: 이번 달 시작일 ~ 다음 달 시작일 전날
+        periodStartYear = currentYear;
+        periodStartMonth = currentMonth;
+        periodEndYear = currentMonth === 12 ? currentYear + 1 : currentYear;
+        periodEndMonth = currentMonth === 12 ? 1 : currentMonth + 1;
+      } else {
+        // 현재 날짜가 시작일 이전: 저번 달 시작일 ~ 이번 달 시작일 전날
+        periodStartYear = currentMonth === 1 ? currentYear - 1 : currentYear;
+        periodStartMonth = currentMonth === 1 ? 12 : currentMonth - 1;
+        periodEndYear = currentYear;
+        periodEndMonth = currentMonth;
+      }
+    }
+
+    // 이 기간에 대해 이미 정기지출이 생성되었는지 확인하는 키
+    const periodKey = `${periodStartYear}-${String(periodStartMonth).padStart(2, "0")}-${monthStartDay}`;
+    const generatedKey = `fixed_generated_${user.id}_${periodKey}`;
+
+    // 이미 생성된 경우 스킵
+    const alreadyGenerated = await AsyncStorage.getItem(generatedKey);
+    if (alreadyGenerated) {
+      return { generated: 0, skipped: fixedItems.length };
+    }
+
+    let generated = 0;
+    let skipped = 0;
+
+    // 각 정기지출에 대해 거래 생성
+    for (const item of fixedItems) {
+      try {
+        // 정기지출 날짜 계산: 해당 기간 내에 정기지출일이 있는지 확인
+        let transactionYear: number;
+        let transactionMonth: number;
+        const fixedDay = item.day;
+
+        // 해당 기간 내에서 정기지출일이 언제인지 계산
+        if (monthStartDay === 1) {
+          // 1일 시작: 현재 달에 정기지출 생성
+          transactionYear = periodStartYear;
+          transactionMonth = periodStartMonth;
+        } else {
+          // 중간일 시작: 정기지출일이 시작일 이후면 현재 달, 아니면 다음 달
+          if (fixedDay >= monthStartDay) {
+            transactionYear = periodStartYear;
+            transactionMonth = periodStartMonth;
+          } else {
+            transactionYear = periodEndYear;
+            transactionMonth = periodEndMonth;
+          }
+        }
+
+        // 거래 날짜 생성
+        const daysInMonth = new Date(transactionYear, transactionMonth, 0).getDate();
+        const actualDay = Math.min(fixedDay, daysInMonth);
+        const transactionDate = `${transactionYear}-${String(transactionMonth).padStart(2, "0")}-${String(actualDay).padStart(2, "0")}`;
+
+        // 이미 동일한 정기지출이 해당 날짜에 생성되었는지 확인
+        const { data: existing } = await supabase
+          .from("transactions")
+          .select("id")
+          .eq("user_id", user.id)
+          .eq("title", item.name)
+          .eq("amount", item.amount)
+          .eq("date", transactionDate)
+          .eq("type", "expense")
+          .single();
+
+        if (existing) {
+          skipped++;
+          continue;
+        }
+
+        // 거래 생성
+        await supabase.from("transactions").insert({
+          user_id: user.id,
+          title: item.name,
+          amount: item.amount,
+          date: transactionDate,
+          type: "expense",
+          asset_id: item.assetId || null,
+          budget_type: item.budgetType,
+          is_installment: false,
+          include_in_living_expense: false, // 정기지출은 생활비에 포함하지 않음
+        });
+
+        generated++;
+      } catch (error) {
+        console.error(`정기지출 거래 생성 실패: ${item.name}`, error);
+        skipped++;
+      }
+    }
+
+    // 생성 완료 표시
+    if (generated > 0) {
+      await AsyncStorage.setItem(generatedKey, new Date().toISOString());
+    }
+
+    return { generated, skipped };
+  },
+
+  // 정기지출 자동 생성이 필요한지 확인
+  async shouldGenerateFixedTransactions(monthStartDay: number): Promise<boolean> {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return false;
+
+    const today = new Date();
+    const currentYear = today.getFullYear();
+    const currentMonth = today.getMonth() + 1;
+    const currentDay = today.getDate();
+
+    // 현재 기간의 시작일 계산
+    let periodStartYear = currentYear;
+    let periodStartMonth = currentMonth;
+
+    if (monthStartDay !== 1 && currentDay < monthStartDay) {
+      periodStartYear = currentMonth === 1 ? currentYear - 1 : currentYear;
+      periodStartMonth = currentMonth === 1 ? 12 : currentMonth - 1;
+    }
+
+    const periodKey = `${periodStartYear}-${String(periodStartMonth).padStart(2, "0")}-${monthStartDay}`;
+    const generatedKey = `fixed_generated_${user.id}_${periodKey}`;
+
+    const alreadyGenerated = await AsyncStorage.getItem(generatedKey);
+    return !alreadyGenerated;
   },
 };

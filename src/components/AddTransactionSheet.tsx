@@ -884,136 +884,58 @@ export default function AddTransactionSheet({
               )}
 
               {/* Asset Selection - Dropdown */}
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>
-                  {formData.type === "transfer" ? "출금 자산" : "자산"}
-                </Text>
-                <TouchableOpacity
-                  style={styles.dropdownButton}
-                  onPress={() => setShowAssetDropdown(!showAssetDropdown)}
-                >
-                  {selectedAsset ? (
-                    <View style={styles.dropdownSelectedRow}>
-                      <Ionicons
-                        name={getAssetIcon(selectedAsset.type)}
-                        size={18}
-                        color={colors.text.primary}
-                      />
-                      <Text style={styles.dropdownSelectedText}>
-                        {selectedAsset.name}
-                      </Text>
-                    </View>
-                  ) : (
-                    <Text style={styles.dropdownPlaceholder}>
-                      자산을 선택하세요
-                    </Text>
-                  )}
-                  <Ionicons
-                    name={showAssetDropdown ? "chevron-up" : "chevron-down"}
-                    size={20}
-                    color={colors.text.tertiary}
-                  />
-                </TouchableOpacity>
-
-                {showAssetDropdown && (
-                  <View style={styles.dropdownList}>
-                    {assets.map((asset) => (
-                      <TouchableOpacity
-                        key={asset.id}
-                        style={[
-                          styles.dropdownItem,
-                          formData.assetId === asset.id &&
-                            styles.dropdownItemActive,
-                        ]}
-                        onPress={() => {
-                          setFormData({ ...formData, assetId: asset.id });
-                          setShowAssetDropdown(false);
-                        }}
-                      >
-                        <Ionicons
-                          name={getAssetIcon(asset.type)}
-                          size={18}
-                          color={
-                            formData.assetId === asset.id
-                              ? colors.primary.main
-                              : colors.text.secondary
-                          }
-                        />
-                        <Text
-                          style={[
-                            styles.dropdownItemText,
-                            formData.assetId === asset.id &&
-                              styles.dropdownItemTextActive,
-                          ]}
-                        >
-                          {asset.name}
-                        </Text>
-                        {formData.assetId === asset.id && (
+              {formData.type === "transfer" ? (
+                <View style={styles.transferAssetContainer}>
+                  {/* 출금 자산 */}
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>출금 자산</Text>
+                    <TouchableOpacity
+                      style={styles.dropdownButton}
+                      onPress={() => setShowAssetDropdown(!showAssetDropdown)}
+                    >
+                      {selectedAsset ? (
+                        <View style={styles.dropdownSelectedRow}>
                           <Ionicons
-                            name="checkmark"
+                            name={getAssetIcon(selectedAsset.type)}
                             size={18}
-                            color={colors.primary.main}
+                            color={colors.text.primary}
                           />
-                        )}
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                )}
-              </View>
-
-              {/* To Asset Selection - 이체일 때만 표시 */}
-              {formData.type === "transfer" && (
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>입금 자산</Text>
-                  <TouchableOpacity
-                    style={styles.dropdownButton}
-                    onPress={() => setShowToAssetDropdown(!showToAssetDropdown)}
-                  >
-                    {selectedToAsset ? (
-                      <View style={styles.dropdownSelectedRow}>
-                        <Ionicons
-                          name={getAssetIcon(selectedToAsset.type)}
-                          size={18}
-                          color={colors.text.primary}
-                        />
-                        <Text style={styles.dropdownSelectedText}>
-                          {selectedToAsset.name}
+                          <Text style={styles.dropdownSelectedText}>
+                            {selectedAsset.name}
+                          </Text>
+                        </View>
+                      ) : (
+                        <Text style={styles.dropdownPlaceholder}>
+                          자산을 선택하세요
                         </Text>
-                      </View>
-                    ) : (
-                      <Text style={styles.dropdownPlaceholder}>
-                        입금할 자산을 선택하세요
-                      </Text>
-                    )}
-                    <Ionicons
-                      name={showToAssetDropdown ? "chevron-up" : "chevron-down"}
-                      size={20}
-                      color={colors.text.tertiary}
-                    />
-                  </TouchableOpacity>
+                      )}
+                      <Ionicons
+                        name={showAssetDropdown ? "chevron-up" : "chevron-down"}
+                        size={20}
+                        color={colors.text.tertiary}
+                      />
+                    </TouchableOpacity>
 
-                  {showToAssetDropdown && (
-                    <View style={styles.dropdownList}>
-                      {assets
-                        .filter((asset) => asset.id !== formData.assetId)
-                        .map((asset) => (
+                    {showAssetDropdown && (
+                      <View style={styles.dropdownList}>
+                        {assets.map((asset) => (
                           <TouchableOpacity
                             key={asset.id}
                             style={[
                               styles.dropdownItem,
-                              formData.toAssetId === asset.id &&
+                              formData.assetId === asset.id &&
                                 styles.dropdownItemActive,
                             ]}
                             onPress={() => {
-                              setFormData({ ...formData, toAssetId: asset.id });
-                              setShowToAssetDropdown(false);
+                              setFormData({ ...formData, assetId: asset.id });
+                              setShowAssetDropdown(false);
                             }}
                           >
                             <Ionicons
                               name={getAssetIcon(asset.type)}
                               size={18}
                               color={
-                                formData.toAssetId === asset.id
+                                formData.assetId === asset.id
                                   ? colors.primary.main
                                   : colors.text.secondary
                               }
@@ -1021,13 +943,13 @@ export default function AddTransactionSheet({
                             <Text
                               style={[
                                 styles.dropdownItemText,
-                                formData.toAssetId === asset.id &&
+                                formData.assetId === asset.id &&
                                   styles.dropdownItemTextActive,
                               ]}
                             >
                               {asset.name}
                             </Text>
-                            {formData.toAssetId === asset.id && (
+                            {formData.assetId === asset.id && (
                               <Ionicons
                                 name="checkmark"
                                 size={18}
@@ -1036,6 +958,178 @@ export default function AddTransactionSheet({
                             )}
                           </TouchableOpacity>
                         ))}
+                      </View>
+                    )}
+                  </View>
+
+                  {/* Swap Divider */}
+                  <View style={styles.swapDividerContainer}>
+                    <View style={styles.swapDividerLine} />
+                    <TouchableOpacity
+                      style={styles.swapButton}
+                      onPress={() => {
+                        setFormData({
+                          ...formData,
+                          assetId: formData.toAssetId,
+                          toAssetId: formData.assetId,
+                        });
+                      }}
+                    >
+                      <Ionicons name="swap-vertical" size={18} color={colors.primary.main} />
+                    </TouchableOpacity>
+                    <View style={styles.swapDividerLine} />
+                  </View>
+
+                  {/* 입금 자산 */}
+                  <View style={[styles.inputGroup, { marginBottom: 0 }]}>
+                    <Text style={styles.inputLabel}>입금 자산</Text>
+                    <TouchableOpacity
+                      style={styles.dropdownButton}
+                      onPress={() => setShowToAssetDropdown(!showToAssetDropdown)}
+                    >
+                      {selectedToAsset ? (
+                        <View style={styles.dropdownSelectedRow}>
+                          <Ionicons
+                            name={getAssetIcon(selectedToAsset.type)}
+                            size={18}
+                            color={colors.text.primary}
+                          />
+                          <Text style={styles.dropdownSelectedText}>
+                            {selectedToAsset.name}
+                          </Text>
+                        </View>
+                      ) : (
+                        <Text style={styles.dropdownPlaceholder}>
+                          입금할 자산을 선택하세요
+                        </Text>
+                      )}
+                      <Ionicons
+                        name={showToAssetDropdown ? "chevron-up" : "chevron-down"}
+                        size={20}
+                        color={colors.text.tertiary}
+                      />
+                    </TouchableOpacity>
+
+                    {showToAssetDropdown && (
+                      <View style={styles.dropdownList}>
+                        {assets
+                          .filter((asset) => asset.id !== formData.assetId)
+                          .map((asset) => (
+                            <TouchableOpacity
+                              key={asset.id}
+                              style={[
+                                styles.dropdownItem,
+                                formData.toAssetId === asset.id &&
+                                  styles.dropdownItemActive,
+                              ]}
+                              onPress={() => {
+                                setFormData({ ...formData, toAssetId: asset.id });
+                                setShowToAssetDropdown(false);
+                              }}
+                            >
+                              <Ionicons
+                                name={getAssetIcon(asset.type)}
+                                size={18}
+                                color={
+                                  formData.toAssetId === asset.id
+                                    ? colors.primary.main
+                                    : colors.text.secondary
+                                }
+                              />
+                              <Text
+                                style={[
+                                  styles.dropdownItemText,
+                                  formData.toAssetId === asset.id &&
+                                    styles.dropdownItemTextActive,
+                                ]}
+                              >
+                                {asset.name}
+                              </Text>
+                              {formData.toAssetId === asset.id && (
+                                <Ionicons
+                                  name="checkmark"
+                                  size={18}
+                                  color={colors.primary.main}
+                                />
+                              )}
+                            </TouchableOpacity>
+                          ))}
+                      </View>
+                    )}
+                  </View>
+                </View>
+              ) : (
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>자산</Text>
+                  <TouchableOpacity
+                    style={styles.dropdownButton}
+                    onPress={() => setShowAssetDropdown(!showAssetDropdown)}
+                  >
+                    {selectedAsset ? (
+                      <View style={styles.dropdownSelectedRow}>
+                        <Ionicons
+                          name={getAssetIcon(selectedAsset.type)}
+                          size={18}
+                          color={colors.text.primary}
+                        />
+                        <Text style={styles.dropdownSelectedText}>
+                          {selectedAsset.name}
+                        </Text>
+                      </View>
+                    ) : (
+                      <Text style={styles.dropdownPlaceholder}>
+                        자산을 선택하세요
+                      </Text>
+                    )}
+                    <Ionicons
+                      name={showAssetDropdown ? "chevron-up" : "chevron-down"}
+                      size={20}
+                      color={colors.text.tertiary}
+                    />
+                  </TouchableOpacity>
+
+                  {showAssetDropdown && (
+                    <View style={styles.dropdownList}>
+                      {assets.map((asset) => (
+                        <TouchableOpacity
+                          key={asset.id}
+                          style={[
+                            styles.dropdownItem,
+                            formData.assetId === asset.id &&
+                              styles.dropdownItemActive,
+                          ]}
+                          onPress={() => {
+                            setFormData({ ...formData, assetId: asset.id });
+                            setShowAssetDropdown(false);
+                          }}
+                        >
+                          <Ionicons
+                            name={getAssetIcon(asset.type)}
+                            size={18}
+                            color={
+                              formData.assetId === asset.id
+                                ? colors.primary.main
+                                : colors.text.secondary
+                            }
+                          />
+                          <Text
+                            style={[
+                              styles.dropdownItemText,
+                              formData.assetId === asset.id &&
+                                styles.dropdownItemTextActive,
+                            ]}
+                          >
+                            {asset.name}
+                          </Text>
+                          {formData.assetId === asset.id && (
+                            <Ionicons
+                              name="checkmark"
+                              size={18}
+                              color={colors.primary.main}
+                            />
+                          )}
+                        </TouchableOpacity>
+                      ))}
                     </View>
                   )}
                 </View>
@@ -1444,6 +1538,28 @@ const styles = StyleSheet.create({
   dropdownItemTextActive: {
     color: colors.primary.main,
     fontWeight: typography.fontWeight.medium,
+  },
+  transferAssetContainer: {
+    marginBottom: spacing.lg,
+  },
+  swapDividerContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginVertical: spacing.sm,
+  },
+  swapDividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: colors.border.light,
+  },
+  swapButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.primary.light + "30",
+    alignItems: "center",
+    justifyContent: "center",
+    marginHorizontal: spacing.md,
   },
   // 할부 관련 스타일
   dayRow: {

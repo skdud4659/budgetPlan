@@ -9,45 +9,82 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { colors, typography, spacing, borderRadius, shadows } from '../../src/styles';
-import type { Transaction } from '../../src/types';
+import type { Transaction, FixedItem } from '../../src/types';
 import { transactionService } from '../../src/services/transactionService';
+import { fixedItemService } from '../../src/services/fixedItemService';
 import { useSettings } from '../../src/contexts/SettingsContext';
 import AddTransactionSheet from '../../src/components/AddTransactionSheet';
 
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
 
 export default function TransactionsScreen() {
-  const { jointBudgetEnabled } = useSettings();
+  const router = useRouter();
+  const { jointBudgetEnabled, personalBudget, monthStartDay } = useSettings();
 
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [fixedItems, setFixedItems] = useState<FixedItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showAddSheet, setShowAddSheet] = useState(false);
 
+  // 정기지출 총액 계산 (모든 fixedItems는 고정 지출)
+  const totalFixedExpense = fixedItems.reduce((sum, item) => sum + item.amount, 0);
+
+  // 가용예산 (월예산 - 정기지출)
+  const availableBudget = (personalBudget || 0) - totalFixedExpense;
+
+  // 정기지출 자동 생성
+  const generateFixedTransactionsIfNeeded = useCallback(async (fixedData: FixedItem[]) => {
+    try {
+      const shouldGenerate = await transactionService.shouldGenerateFixedTransactions(monthStartDay);
+      if (shouldGenerate && fixedData.length > 0) {
+        const result = await transactionService.generateFixedTransactions(fixedData, monthStartDay);
+        if (result.generated > 0) {
+          console.log(`정기지출 ${result.generated}건 자동 생성 완료`);
+          // 거래 내역 다시 로드
+          const newTransactions = await transactionService.getTransactions(
+            currentMonth.getFullYear(),
+            currentMonth.getMonth() + 1
+          );
+          setTransactions(newTransactions);
+        }
+      }
+    } catch (error) {
+      console.error('정기지출 자동 생성 실패:', error);
+    }
+  }, [monthStartDay, currentMonth]);
+
   // 데이터 로드
-  const loadTransactions = useCallback(async () => {
+  const loadData = useCallback(async () => {
     try {
       setIsLoading(true);
-      const data = await transactionService.getTransactions(
-        currentMonth.getFullYear(),
-        currentMonth.getMonth() + 1
-      );
-      setTransactions(data);
+      const [transactionData, fixedData] = await Promise.all([
+        transactionService.getTransactions(
+          currentMonth.getFullYear(),
+          currentMonth.getMonth() + 1
+        ),
+        fixedItemService.getFixedItems(),
+      ]);
+      setTransactions(transactionData);
+      setFixedItems(fixedData);
+
+      // 정기지출 자동 생성 체크
+      generateFixedTransactionsIfNeeded(fixedData);
     } catch (error) {
-      console.error('거래 내역 로드 실패:', error);
+      console.error('데이터 로드 실패:', error);
     } finally {
       setIsLoading(false);
     }
-  }, [currentMonth]);
+  }, [currentMonth, generateFixedTransactionsIfNeeded]);
 
   // 탭이 포커스될 때마다 데이터 새로고침
   useFocusEffect(
     useCallback(() => {
-      loadTransactions();
-    }, [loadTransactions])
+      loadData();
+    }, [loadData])
   );
 
   const formatCurrency = (amount: number) => {
@@ -170,15 +207,84 @@ export default function TransactionsScreen() {
             <Ionicons name="chevron-forward" size={20} color={colors.text.secondary} />
           </TouchableOpacity>
         </View>
-        <TouchableOpacity
-          style={styles.addButton}
-          onPress={() => setShowAddSheet(true)}
-        >
-          <Ionicons name="add" size={24} color={colors.primary.main} />
-        </TouchableOpacity>
+        <View style={styles.headerRight}>
+          <TouchableOpacity
+            style={styles.statsButton}
+            onPress={() => router.push('/statistics')}
+          >
+            <Ionicons name="stats-chart" size={20} color={colors.primary.main} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.addButton}
+            onPress={() => setShowAddSheet(true)}
+          >
+            <Ionicons name="add" size={24} color={colors.primary.main} />
+          </TouchableOpacity>
+        </View>
       </View>
 
-      {/* Monthly Summary */}
+      {/* Budget Summary Card */}
+      <View style={styles.budgetCard}>
+        <View style={styles.budgetCardHeader}>
+          <Text style={styles.budgetCardTitle}>예산 요약</Text>
+          <Text style={styles.budgetStartDay}>매월 {monthStartDay}일 시작</Text>
+        </View>
+        <View style={styles.budgetRow}>
+          <View style={styles.budgetItem}>
+            <Text style={styles.budgetLabel}>월예산</Text>
+            <Text style={styles.budgetValue}>{formatCurrency(personalBudget || 0)}</Text>
+          </View>
+          <View style={styles.budgetDivider} />
+          <View style={styles.budgetItem}>
+            <Text style={styles.budgetLabel}>정기지출</Text>
+            <Text style={[styles.budgetValue, styles.fixedExpenseText]}>
+              -{formatCurrency(totalFixedExpense)}
+            </Text>
+          </View>
+          <View style={styles.budgetDivider} />
+          <View style={styles.budgetItem}>
+            <Text style={styles.budgetLabel}>가용예산</Text>
+            <Text style={[styles.budgetValue, styles.availableText]}>
+              {formatCurrency(availableBudget)}
+            </Text>
+          </View>
+        </View>
+        <View style={styles.budgetProgressSection}>
+          <View style={styles.budgetProgressInfo}>
+            <Text style={styles.budgetProgressLabel}>사용</Text>
+            <Text style={styles.budgetProgressValue}>
+              {formatCurrency(monthlyExpense)}
+            </Text>
+          </View>
+          <View style={styles.budgetProgressBar}>
+            <View
+              style={[
+                styles.budgetProgressFill,
+                {
+                  width: `${Math.min((monthlyExpense / (availableBudget || 1)) * 100, 100)}%`,
+                  backgroundColor:
+                    monthlyExpense > availableBudget
+                      ? colors.semantic.expense
+                      : colors.primary.main,
+                },
+              ]}
+            />
+          </View>
+          <View style={styles.budgetProgressInfo}>
+            <Text style={styles.budgetProgressLabel}>남은예산</Text>
+            <Text
+              style={[
+                styles.budgetProgressValue,
+                availableBudget - monthlyExpense < 0 && styles.overBudgetText,
+              ]}
+            >
+              {formatCurrency(availableBudget - monthlyExpense)}
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      {/* Transaction Summary */}
       <View style={styles.summaryRow}>
         <View style={styles.summaryItem}>
           <Text style={styles.summaryLabel}>수입</Text>
@@ -298,7 +404,7 @@ export default function TransactionsScreen() {
       <AddTransactionSheet
         visible={showAddSheet}
         onClose={() => setShowAddSheet(false)}
-        onSuccess={loadTransactions}
+        onSuccess={loadData}
       />
     </SafeAreaView>
   );
@@ -392,6 +498,19 @@ const styles = StyleSheet.create({
     color: colors.text.primary,
     marginHorizontal: spacing.sm,
   },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  statsButton: {
+    width: 40,
+    height: 40,
+    borderRadius: borderRadius.base,
+    backgroundColor: colors.primary.light + '30',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   addButton: {
     width: 40,
     height: 40,
@@ -399,6 +518,92 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary.light + '30',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  budgetCard: {
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.md,
+    backgroundColor: colors.background.secondary,
+    borderRadius: borderRadius.xl,
+    padding: spacing.base,
+    ...shadows.sm,
+  },
+  budgetCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  budgetCardTitle: {
+    fontSize: typography.fontSize.md,
+    fontWeight: typography.fontWeight.semiBold,
+    color: colors.text.primary,
+  },
+  budgetStartDay: {
+    fontSize: typography.fontSize.sm,
+    color: colors.text.tertiary,
+  },
+  budgetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  budgetItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  budgetDivider: {
+    width: 1,
+    height: 30,
+    backgroundColor: colors.border.light,
+  },
+  budgetLabel: {
+    fontSize: typography.fontSize.xs,
+    color: colors.text.tertiary,
+    marginBottom: spacing.xs,
+  },
+  budgetValue: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.semiBold,
+    color: colors.text.primary,
+  },
+  fixedExpenseText: {
+    color: colors.semantic.expense,
+  },
+  availableText: {
+    color: colors.primary.main,
+  },
+  budgetProgressSection: {
+    backgroundColor: colors.background.tertiary,
+    borderRadius: borderRadius.lg,
+    padding: spacing.md,
+  },
+  budgetProgressInfo: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: spacing.xs,
+  },
+  budgetProgressLabel: {
+    fontSize: typography.fontSize.sm,
+    color: colors.text.tertiary,
+  },
+  budgetProgressValue: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.semiBold,
+    color: colors.text.primary,
+  },
+  budgetProgressBar: {
+    height: 8,
+    backgroundColor: colors.border.light,
+    borderRadius: borderRadius.sm,
+    marginVertical: spacing.sm,
+    overflow: 'hidden',
+  },
+  budgetProgressFill: {
+    height: '100%',
+    borderRadius: borderRadius.sm,
+  },
+  overBudgetText: {
+    color: colors.semantic.expense,
   },
   summaryRow: {
     flexDirection: 'row',
