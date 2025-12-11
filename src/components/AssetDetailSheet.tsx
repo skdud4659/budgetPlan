@@ -20,6 +20,7 @@ import {
 import type { Asset, Transaction, FixedItem, AssetType } from "../types";
 import { transactionService } from "../services/transactionService";
 import { fixedItemService } from "../services/fixedItemService";
+import AddTransactionSheet from "./AddTransactionSheet";
 
 interface AssetDetailSheetProps {
   visible: boolean;
@@ -57,6 +58,7 @@ export default function AssetDetailSheet({
   const [isLoading, setIsLoading] = useState(true);
   const [selectedMonth, setSelectedMonth] = useState(new Date());
   const [billingInfo, setBillingInfo] = useState<{ currentBilling: number; nextBilling: number } | null>(null);
+  const [showAddTransaction, setShowAddTransaction] = useState(false);
 
   useEffect(() => {
     if (visible && asset) {
@@ -317,7 +319,16 @@ export default function AssetDetailSheet({
                 {/* 거래 내역 섹션 */}
                 <View style={styles.section}>
                   <View style={styles.sectionHeader}>
-                    <Text style={styles.sectionTitle}>거래 내역</Text>
+                    <View style={styles.sectionTitleRow}>
+                      <Text style={styles.sectionTitle}>거래 내역</Text>
+                      <TouchableOpacity
+                        style={styles.addTransactionButton}
+                        onPress={() => setShowAddTransaction(true)}
+                      >
+                        <Ionicons name="add" size={18} color={colors.primary.main} />
+                        <Text style={styles.addTransactionText}>내역 추가</Text>
+                      </TouchableOpacity>
+                    </View>
                     <View style={styles.monthNavigator}>
                       <TouchableOpacity
                         onPress={handlePrevMonth}
@@ -436,6 +447,16 @@ export default function AssetDetailSheet({
           </ScrollView>
         </View>
       </View>
+
+      {/* 내역 추가 시트 */}
+      <AddTransactionSheet
+        visible={showAddTransaction}
+        onClose={() => setShowAddTransaction(false)}
+        onSuccess={() => {
+          loadData(selectedMonth);
+        }}
+        defaultAssetId={asset?.id}
+      />
     </Modal>
   );
 }
@@ -587,16 +608,33 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xl,
   },
   sectionHeader: {
+    marginBottom: spacing.sm,
+    paddingHorizontal: spacing.xs,
+  },
+  sectionTitleRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: spacing.sm,
-    paddingHorizontal: spacing.xs,
   },
   sectionTitle: {
     fontSize: typography.fontSize.base,
     fontWeight: typography.fontWeight.semiBold,
     color: colors.text.primary,
+  },
+  addTransactionButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.primary.light + "30",
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: borderRadius.sm,
+    gap: 4,
+  },
+  addTransactionText: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.medium,
+    color: colors.primary.main,
   },
   sectionTotal: {
     fontSize: typography.fontSize.sm,

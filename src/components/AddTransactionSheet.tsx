@@ -32,6 +32,7 @@ interface AddTransactionSheetProps {
   onClose: () => void;
   onSuccess?: () => void;
   editTransaction?: Transaction | null;
+  defaultAssetId?: string | null;
 }
 
 interface TransactionFormData {
@@ -57,6 +58,7 @@ export default function AddTransactionSheet({
   onClose,
   onSuccess,
   editTransaction,
+  defaultAssetId,
 }: AddTransactionSheetProps) {
   const isEditMode = !!editTransaction;
 
@@ -137,8 +139,13 @@ export default function AddTransactionSheet({
       setJointBudgetEnabled(settings.jointBudgetEnabled);
 
       // 수정 모드가 아닌 경우에만 기본 자산 적용
-      if (!editTransaction && settings.defaultAssetId) {
-        setFormData((prev) => ({ ...prev, assetId: settings.defaultAssetId }));
+      // defaultAssetId prop이 있으면 우선 적용, 없으면 설정의 기본 자산 적용
+      if (!editTransaction) {
+        if (defaultAssetId) {
+          setFormData((prev) => ({ ...prev, assetId: defaultAssetId }));
+        } else if (settings.defaultAssetId) {
+          setFormData((prev) => ({ ...prev, assetId: settings.defaultAssetId }));
+        }
       }
     } catch (error) {
       console.error("데이터 로드 실패:", error);
