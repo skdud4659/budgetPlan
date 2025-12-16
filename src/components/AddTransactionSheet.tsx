@@ -33,6 +33,9 @@ interface AddTransactionSheetProps {
   onSuccess?: () => void;
   editTransaction?: Transaction | null;
   defaultAssetId?: string | null;
+  defaultType?: TransactionType;
+  defaultAmount?: number;
+  defaultTitle?: string;
 }
 
 interface TransactionFormData {
@@ -59,13 +62,16 @@ export default function AddTransactionSheet({
   onSuccess,
   editTransaction,
   defaultAssetId,
+  defaultType,
+  defaultAmount,
+  defaultTitle,
 }: AddTransactionSheetProps) {
   const isEditMode = !!editTransaction;
 
   const getInitialFormData = (): TransactionFormData => ({
-    title: editTransaction?.title || "",
-    amount: editTransaction?.amount?.toString() || "",
-    type: editTransaction?.type || "expense",
+    title: editTransaction?.title || defaultTitle || "",
+    amount: editTransaction?.amount?.toString() || defaultAmount?.toString() || "",
+    type: editTransaction?.type || defaultType || "expense",
     budgetType: editTransaction?.budgetType || "personal",
     categoryId: editTransaction?.categoryId || null,
     assetId: editTransaction?.assetId || null,

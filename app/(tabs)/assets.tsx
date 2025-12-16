@@ -13,11 +13,12 @@ import { Swipeable } from 'react-native-gesture-handler';
 import DraggableFlatList, { RenderItemParams, ScaleDecorator } from 'react-native-draggable-flatlist';
 import { useFocusEffect } from 'expo-router';
 import { colors, typography, spacing, borderRadius, shadows, assetTypeConfig } from '../../src/styles';
-import type { Asset, AssetType } from '../../src/types';
+import type { Asset, AssetType, TransactionType } from '../../src/types';
 import { assetService } from '../../src/services/assetService';
 import { transactionService } from '../../src/services/transactionService';
 import AddAssetSheet from '../../src/components/AddAssetSheet';
 import AssetDetailSheet from '../../src/components/AssetDetailSheet';
+import AddTransactionSheet from '../../src/components/AddTransactionSheet';
 import ConfirmModal from '../../src/components/ConfirmModal';
 
 // 자산 타입 순서 정의
@@ -37,6 +38,13 @@ export default function AssetsScreen() {
   const [cardBillingInfo, setCardBillingInfo] = useState<CardBillingInfo>({});
   const [isEditMode, setIsEditMode] = useState(false);
   const [typeOrder, setTypeOrder] = useState<AssetType[]>(DEFAULT_TYPE_ORDER);
+  // 차액 거래 추가용 상태
+  const [showTransactionSheet, setShowTransactionSheet] = useState(false);
+  const [differenceTransactionData, setDifferenceTransactionData] = useState<{
+    assetId: string;
+    amount: number;
+    type: TransactionType;
+  } | null>(null);
 
   // 자산 목록 불러오기
   const loadAssets = useCallback(async () => {
@@ -69,9 +77,16 @@ export default function AssetsScreen() {
     }
   }, []);
 
-  // 탭이 포커스될 때마다 데이터 새로고침
+  // 탭이 포커스될 때마다 데이터 새로고침 및 상태 초기화
   useFocusEffect(
     useCallback(() => {
+      // 편집 모드 및 모든 모달 상태 초기화
+      setIsEditMode(false);
+      setShowAddSheet(false);
+      setEditingAsset(null);
+      setDeleteTarget(null);
+      setSelectedAsset(null);
+
       loadAssets();
     }, [loadAssets])
   );
@@ -132,6 +147,17 @@ export default function AssetsScreen() {
   const handleCloseSheet = () => {
     setShowAddSheet(false);
     setEditingAsset(null);
+  };
+
+  // 차액 거래 추가 처리
+  const handleBalanceDifferenceTransaction = (assetId: string, difference: number) => {
+    // 양수 차액 = 수입, 음수 차액 = 지출
+    setDifferenceTransactionData({
+      assetId,
+      amount: Math.abs(difference),
+      type: difference > 0 ? 'income' : 'expense',
+    });
+    setShowTransactionSheet(true);
   };
 
   const totalAssets = assets
@@ -379,6 +405,25 @@ export default function AssetsScreen() {
         onSubmit={handleSubmitAsset}
         onDelete={editingAsset ? () => handleDeleteAsset(editingAsset) : undefined}
         editAsset={editingAsset}
+        onBalanceDifferenceTransaction={handleBalanceDifferenceTransaction}
+      />
+
+      {/* 차액 거래 추가 시트 */}
+      <AddTransactionSheet
+        visible={showTransactionSheet}
+        onClose={() => {
+          setShowTransactionSheet(false);
+          setDifferenceTransactionData(null);
+        }}
+        onSuccess={() => {
+          loadAssets();
+          setShowTransactionSheet(false);
+          setDifferenceTransactionData(null);
+        }}
+        defaultAssetId={differenceTransactionData?.assetId}
+        defaultType={differenceTransactionData?.type}
+        defaultAmount={differenceTransactionData?.amount}
+        defaultTitle="잔액 조정"
       />
 
       {/* 삭제 확인 모달 */}

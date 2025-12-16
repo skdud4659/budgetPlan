@@ -60,9 +60,15 @@ export default function BudgetScreen() {
     }
   }, []);
 
-  // 탭이 포커스될 때마다 데이터 새로고침
+  // 탭이 포커스될 때마다 데이터 새로고침 및 상태 초기화
   useFocusEffect(
     useCallback(() => {
+      // 모든 모달/시트 상태 초기화
+      setShowAddSheet(false);
+      setEditingItem(null);
+      setDeleteTarget(null);
+      setShowBudgetModal(false);
+
       loadFixedItems();
     }, [loadFixedItems])
   );
@@ -115,6 +121,7 @@ export default function BudgetScreen() {
     type: FixedItemType;
     amount: number;
     day: number;
+    categoryId: string | null;
     assetId: string | null;
     budgetType: BudgetType;
   }) => {
@@ -443,6 +450,9 @@ function FixedItemRow({
     return amount.toLocaleString("ko-KR") + "원";
   };
 
+  const categoryColor = item.category?.color || colors.text.tertiary;
+  const categoryIcon = item.category?.iconName || "ellipse-outline";
+
   const renderRightActions = (
     progress: Animated.AnimatedInterpolation<number>,
     dragX: Animated.AnimatedInterpolation<number>
@@ -484,6 +494,18 @@ function FixedItemRow({
         activeOpacity={0.7}
         onPress={onEdit}
       >
+        <View
+          style={[
+            styles.itemIcon,
+            { backgroundColor: categoryColor + "20" },
+          ]}
+        >
+          <Ionicons
+            name={categoryIcon as keyof typeof Ionicons.glyphMap}
+            size={20}
+            color={categoryColor}
+          />
+        </View>
         <View style={styles.itemLeft}>
           <View style={styles.itemHeader}>
             <Text style={styles.itemName}>{item.name}</Text>
@@ -640,7 +662,6 @@ const styles = StyleSheet.create({
   itemRow: {
     backgroundColor: colors.background.secondary,
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.base,
@@ -648,6 +669,14 @@ const styles = StyleSheet.create({
   itemRowBorder: {
     borderBottomWidth: 1,
     borderBottomColor: colors.border.light,
+  },
+  itemIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: borderRadius.base,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: spacing.md,
   },
   itemLeft: {
     flex: 1,

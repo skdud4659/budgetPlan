@@ -19,6 +19,8 @@ import AddTransactionSheet from '../../src/components/AddTransactionSheet';
 
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
 
+type ViewMode = 'list' | 'calendar';
+
 export default function TransactionsScreen() {
   const router = useRouter();
   const { jointBudgetEnabled, personalBudget, monthStartDay } = useSettings();
@@ -29,6 +31,7 @@ export default function TransactionsScreen() {
   const [fixedItems, setFixedItems] = useState<FixedItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showAddSheet, setShowAddSheet] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>('calendar');
 
   // 정기지출 총액 계산 (모든 fixedItems는 고정 지출)
   const totalFixedExpense = fixedItems.reduce((sum, item) => sum + item.amount, 0);
@@ -194,6 +197,39 @@ export default function TransactionsScreen() {
     .filter(t => t.type === 'expense')
     .reduce((sum, t) => sum + t.amount, 0);
 
+  // 리스트뷰용 날짜별 그룹핑
+  const groupTransactionsByDate = () => {
+    const groups: { date: string; transactions: Transaction[] }[] = [];
+    const dateMap: Record<string, Transaction[]> = {};
+
+    transactions.forEach((t) => {
+      if (!dateMap[t.date]) {
+        dateMap[t.date] = [];
+      }
+      dateMap[t.date].push(t);
+    });
+
+    // 날짜 내림차순 정렬
+    Object.keys(dateMap)
+      .sort((a, b) => b.localeCompare(a))
+      .forEach((date) => {
+        groups.push({ date, transactions: dateMap[date] });
+      });
+
+    return groups;
+  };
+
+  const groupedTransactions = groupTransactionsByDate();
+
+  // 날짜 포맷팅 (예: "12월 4일 수요일")
+  const formatDateHeader = (dateStr: string) => {
+    const date = new Date(dateStr);
+    const month = date.getMonth() + 1;
+    const day = date.getDate();
+    const weekday = ['일요일', '월요일', '화요일', '수요일', '목요일', '금요일', '토요일'][date.getDay()];
+    return `${month}월 ${day}일 ${weekday}`;
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       {/* Header */}
@@ -214,12 +250,34 @@ export default function TransactionsScreen() {
           >
             <Ionicons name="stats-chart" size={20} color={colors.primary.main} />
           </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.addButton}
-            onPress={() => setShowAddSheet(true)}
-          >
-            <Ionicons name="add" size={24} color={colors.primary.main} />
-          </TouchableOpacity>
+          <View style={styles.viewModeToggle}>
+            <TouchableOpacity
+              style={[
+                styles.viewModeButton,
+                viewMode === 'list' && styles.viewModeButtonActive,
+              ]}
+              onPress={() => setViewMode('list')}
+            >
+              <Ionicons
+                name="list"
+                size={18}
+                color={viewMode === 'list' ? colors.text.inverse : colors.text.secondary}
+              />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.viewModeButton,
+                viewMode === 'calendar' && styles.viewModeButtonActive,
+              ]}
+              onPress={() => setViewMode('calendar')}
+            >
+              <Ionicons
+                name="calendar"
+                size={18}
+                color={viewMode === 'calendar' ? colors.text.inverse : colors.text.secondary}
+              />
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
 
@@ -301,104 +359,165 @@ export default function TransactionsScreen() {
         </View>
       </View>
 
-      {/* Calendar */}
-      <View style={styles.calendarContainer}>
-        {/* Weekday Headers */}
-        <View style={styles.weekdayRow}>
-          {WEEKDAYS.map((day, index) => (
-            <View key={day} style={styles.weekdayCell}>
-              <Text style={[
-                styles.weekdayText,
-                index === 0 && styles.sundayText,
-                index === 6 && styles.saturdayText,
-              ]}>
-                {day}
-              </Text>
-            </View>
-          ))}
-        </View>
-
-        {/* Calendar Days */}
-        <View style={styles.daysGrid}>
-          {calendarDays.map((day, index) => {
-            if (day === null) {
-              return <View key={`empty-${index}`} style={styles.dayCell} />;
-            }
-
-            const dateStr = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-            const expense = getDateExpense(dateStr);
-            const hasTransactions = transactionsByDate[dateStr]?.length > 0;
-            const dayOfWeek = (index % 7);
-
-            return (
-              <TouchableOpacity
-                key={day}
-                style={[
-                  styles.dayCell,
-                  isSelected(day) && styles.dayCellSelected,
-                ]}
-                onPress={() => handleDayPress(day)}
-                activeOpacity={0.7}
-              >
-                <Text style={[
-                  styles.dayText,
-                  isToday(day) && styles.todayText,
-                  isSelected(day) && styles.selectedDayText,
-                  dayOfWeek === 0 && styles.sundayText,
-                  dayOfWeek === 6 && styles.saturdayText,
-                ]}>
-                  {day}
-                </Text>
-                {expense > 0 && (
+      {viewMode === 'calendar' ? (
+        <>
+          {/* Calendar */}
+          <View style={styles.calendarContainer}>
+            {/* Weekday Headers */}
+            <View style={styles.weekdayRow}>
+              {WEEKDAYS.map((day, index) => (
+                <View key={day} style={styles.weekdayCell}>
                   <Text style={[
-                    styles.dayExpense,
-                    isSelected(day) && styles.selectedDayExpense,
-                  ]} numberOfLines={1}>
-                    {expense >= 10000
-                      ? `${Math.floor(expense / 10000)}만`
-                      : formatCurrency(expense).replace('원', '')}
+                    styles.weekdayText,
+                    index === 0 && styles.sundayText,
+                    index === 6 && styles.saturdayText,
+                  ]}>
+                    {day}
                   </Text>
-                )}
-                {hasTransactions && !expense && (
-                  <View style={[
-                    styles.dot,
-                    isSelected(day) && styles.selectedDot,
-                  ]} />
-                )}
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-      </View>
+                </View>
+              ))}
+            </View>
 
-      {/* Selected Date Transactions */}
-      <View style={styles.selectedDateSection}>
-        <Text style={styles.selectedDateTitle}>{formatSelectedDate()}</Text>
+            {/* Calendar Days */}
+            <View style={styles.daysGrid}>
+              {calendarDays.map((day, index) => {
+                if (day === null) {
+                  return <View key={`empty-${index}`} style={styles.dayCell} />;
+                }
 
-        {isLoading ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="small" color={colors.primary.main} />
+                const dateStr = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                const expense = getDateExpense(dateStr);
+                const hasTransactions = transactionsByDate[dateStr]?.length > 0;
+                const dayOfWeek = (index % 7);
+
+                return (
+                  <TouchableOpacity
+                    key={day}
+                    style={[
+                      styles.dayCell,
+                      isSelected(day) && styles.dayCellSelected,
+                    ]}
+                    onPress={() => handleDayPress(day)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[
+                      styles.dayText,
+                      isToday(day) && styles.todayText,
+                      isSelected(day) && styles.selectedDayText,
+                      dayOfWeek === 0 && styles.sundayText,
+                      dayOfWeek === 6 && styles.saturdayText,
+                    ]}>
+                      {day}
+                    </Text>
+                    {expense > 0 && (
+                      <Text style={[
+                        styles.dayExpense,
+                        isSelected(day) && styles.selectedDayExpense,
+                      ]} numberOfLines={1}>
+                        {expense >= 10000
+                          ? `${Math.floor(expense / 10000)}만`
+                          : formatCurrency(expense).replace('원', '')}
+                      </Text>
+                    )}
+                    {hasTransactions && !expense && (
+                      <View style={[
+                        styles.dot,
+                        isSelected(day) && styles.selectedDot,
+                      ]} />
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
           </View>
-        ) : selectedTransactions.length > 0 ? (
-          <ScrollView
-            style={styles.transactionList}
-            showsVerticalScrollIndicator={false}
-          >
-            {selectedTransactions.map((transaction, index) => (
-              <TransactionItem
-                key={transaction.id}
-                transaction={transaction}
-                isLast={index === selectedTransactions.length - 1}
-                showJointBadge={jointBudgetEnabled}
-              />
-            ))}
-          </ScrollView>
-        ) : (
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>거래 내역이 없습니다</Text>
+
+          {/* Selected Date Transactions */}
+          <View style={styles.selectedDateSection}>
+            <Text style={styles.selectedDateTitle}>{formatSelectedDate()}</Text>
+
+            {isLoading ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="small" color={colors.primary.main} />
+              </View>
+            ) : selectedTransactions.length > 0 ? (
+              <ScrollView
+                style={styles.transactionList}
+                showsVerticalScrollIndicator={false}
+              >
+                {selectedTransactions.map((transaction, index) => (
+                  <TransactionItem
+                    key={transaction.id}
+                    transaction={transaction}
+                    isLast={index === selectedTransactions.length - 1}
+                    showJointBadge={jointBudgetEnabled}
+                  />
+                ))}
+              </ScrollView>
+            ) : (
+              <View style={styles.emptyContainer}>
+                <Text style={styles.emptyText}>거래 내역이 없습니다</Text>
+              </View>
+            )}
           </View>
-        )}
-      </View>
+        </>
+      ) : (
+        /* List View */
+        <ScrollView
+          style={styles.listViewContainer}
+          contentContainerStyle={styles.listViewContent}
+          showsVerticalScrollIndicator={false}
+        >
+          {isLoading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="small" color={colors.primary.main} />
+            </View>
+          ) : transactions.length > 0 ? (
+            <View style={styles.transactionSection}>
+              {groupedTransactions.map((group) => (
+                <View key={group.date}>
+                  {/* 날짜 헤더 */}
+                  <View style={styles.dateHeader}>
+                    <Text style={styles.dateHeaderText}>
+                      {formatDateHeader(group.date)}
+                    </Text>
+                    <Text style={styles.dateHeaderAmount}>
+                      {formatCurrency(
+                        group.transactions
+                          .filter((t) => t.type === 'expense')
+                          .reduce((sum, t) => sum + t.amount, 0)
+                      )}
+                    </Text>
+                  </View>
+                  {/* 해당 날짜의 거래 목록 */}
+                  {group.transactions.map((transaction, index) => (
+                    <TransactionItem
+                      key={transaction.id}
+                      transaction={transaction}
+                      isLast={index === group.transactions.length - 1}
+                      showJointBadge={jointBudgetEnabled}
+                    />
+                  ))}
+                </View>
+              ))}
+            </View>
+          ) : (
+            <View style={styles.emptyContainer}>
+              <Ionicons name="receipt-outline" size={48} color={colors.text.tertiary} />
+              <Text style={styles.emptyText}>거래 내역이 없어요</Text>
+              <Text style={styles.emptySubtext}>+ 버튼을 눌러 거래를 추가해 보세요</Text>
+            </View>
+          )}
+        </ScrollView>
+      )}
+
+      {/* Floating Action Button */}
+      <TouchableOpacity
+        style={styles.fab}
+        onPress={() => setShowAddSheet(true)}
+        activeOpacity={0.8}
+      >
+        <Ionicons name="add" size={28} color={colors.text.inverse} />
+      </TouchableOpacity>
 
       {/* Add Transaction Sheet */}
       <AddTransactionSheet
@@ -511,13 +630,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  addButton: {
-    width: 40,
-    height: 40,
+  viewModeToggle: {
+    flexDirection: 'row',
+    backgroundColor: colors.background.tertiary,
     borderRadius: borderRadius.base,
-    backgroundColor: colors.primary.light + '30',
-    alignItems: 'center',
-    justifyContent: 'center',
+    padding: 2,
+  },
+  viewModeButton: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: borderRadius.sm,
+  },
+  viewModeButtonActive: {
+    backgroundColor: colors.primary.main,
   },
   budgetCard: {
     marginHorizontal: spacing.lg,
@@ -798,5 +923,55 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: typography.fontSize.base,
     color: colors.text.tertiary,
+    marginTop: spacing.md,
+  },
+  emptySubtext: {
+    fontSize: typography.fontSize.sm,
+    color: colors.text.tertiary,
+    marginTop: spacing.xs,
+  },
+  // List View Styles
+  listViewContainer: {
+    flex: 1,
+    marginHorizontal: spacing.lg,
+  },
+  listViewContent: {
+    paddingBottom: spacing['2xl'],
+  },
+  transactionSection: {
+    backgroundColor: colors.background.secondary,
+    borderRadius: borderRadius.xl,
+    padding: spacing.base,
+    ...shadows.sm,
+  },
+  dateHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.xs,
+    marginTop: spacing.sm,
+  },
+  dateHeaderText: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.medium,
+    color: colors.text.secondary,
+  },
+  dateHeaderAmount: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.medium,
+    color: colors.semantic.expense,
+  },
+  fab: {
+    position: 'absolute',
+    bottom: spacing.xl,
+    right: spacing.lg,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: colors.primary.main,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...shadows.lg,
   },
 });

@@ -44,12 +44,6 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="home"
-        options={{
-          href: null, // 숨김 (내역 탭으로 대체)
-        }}
-      />
-      <Tabs.Screen
         name="scheduled"
         options={{
           href: null, // 숨김 (예산 탭으로 통합)

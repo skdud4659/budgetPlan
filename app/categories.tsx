@@ -238,6 +238,22 @@ export default function CategoriesScreen() {
             수입
           </Text>
         </TouchableOpacity>
+        <TouchableOpacity
+          style={[
+            styles.typeButton,
+            selectedType === "fixed" && styles.typeButtonActive,
+          ]}
+          onPress={() => setSelectedType("fixed")}
+        >
+          <Text
+            style={[
+              styles.typeButtonText,
+              selectedType === "fixed" && styles.typeButtonTextActive,
+            ]}
+          >
+            정기지출
+          </Text>
+        </TouchableOpacity>
       </View>
 
       {/* Category List */}

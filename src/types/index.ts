@@ -16,7 +16,7 @@ export type AssetType =
   | 'other';
 
 // 카테고리 타입
-export type CategoryType = 'income' | 'expense';
+export type CategoryType = 'income' | 'expense' | 'fixed';
 
 // 거래 타입
 export type TransactionType = 'income' | 'expense' | 'transfer';
@@ -33,7 +33,8 @@ export interface Asset {
   userId: string;
   name: string;
   type: AssetType;
-  balance: number;
+  initialBalance: number; // 초기 잔액
+  balance: number; // 계산된 현재 잔액 (초기잔액 + 거래내역)
   billingDate?: number; // 결제일 (카드용, 1-31)
   settlementDate?: number; // 정산일 (카드용, 1-31) - 이 날부터 결제일까지의 사용금액이 다음 결제 예정
   sortOrder: number;
@@ -90,11 +91,13 @@ export interface FixedItem {
   type: FixedItemType;
   amount: number;
   day: number; // 납부일 (1-31)
+  categoryId: string | null;
   assetId: string | null;
   budgetType: BudgetType;
   isActive: boolean;
   createdAt: string;
   // Relations
+  category?: Category;
   asset?: Asset;
 }
 

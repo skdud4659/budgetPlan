@@ -1,6 +1,5 @@
 import { supabase } from "../config/supabase";
 import type { Transaction, TransactionType, BudgetType, FixedItem } from "../types";
-import { assetService } from "./assetService";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // DB 스네이크케이스 → 앱 카멜케이스 변환
@@ -170,23 +169,7 @@ export const transactionService = {
 
     if (error) throw error;
 
-    // 이체일 경우 자산 잔액 업데이트
-    if (item.type === 'transfer' && item.assetId && item.toAssetId) {
-      // 출금 자산: 잔액 감소
-      const fromAsset = await assetService.getAsset(item.assetId);
-      if (fromAsset) {
-        await assetService.updateAsset(item.assetId, {
-          balance: fromAsset.balance - item.amount,
-        });
-      }
-      // 입금 자산: 잔액 증가
-      const toAsset = await assetService.getAsset(item.toAssetId);
-      if (toAsset) {
-        await assetService.updateAsset(item.toAssetId, {
-          balance: toAsset.balance + item.amount,
-        });
-      }
-    }
+    // 자산 잔액은 assetService에서 거래 기반으로 자동 계산되므로 별도 업데이트 불필요
 
     return transformTransaction(data);
   },
@@ -245,6 +228,9 @@ export const transactionService = {
       .single();
 
     if (error) throw error;
+
+    // 자산 잔액은 assetService에서 거래 기반으로 자동 계산되므로 별도 업데이트 불필요
+
     return transformTransaction(data);
   },
 
@@ -253,6 +239,8 @@ export const transactionService = {
     const { error } = await supabase.from("transactions").delete().eq("id", id);
 
     if (error) throw error;
+
+    // 자산 잔액은 assetService에서 거래 기반으로 자동 계산되므로 별도 업데이트 불필요
   },
 
   // 월 시작일 기준 날짜 범위 계산

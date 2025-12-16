@@ -19,9 +19,10 @@ import {
   borderRadius,
   shadows,
 } from "../styles";
-import type { FixedItem, FixedItemType, BudgetType, Asset } from "../types";
+import type { FixedItem, FixedItemType, BudgetType, Asset, Category } from "../types";
 import { assetService } from "../services/assetService";
 import { settingsService } from "../services/settingsService";
+import { categoryService } from "../services/categoryService";
 
 interface AddFixedItemSheetProps {
   visible: boolean;
@@ -36,6 +37,7 @@ interface FixedItemFormData {
   type: FixedItemType;
   amount: number;
   day: number;
+  categoryId: string | null;
   assetId: string | null;
   budgetType: BudgetType;
 }
@@ -50,10 +52,12 @@ export default function AddFixedItemSheet({
   const [name, setName] = useState("");
   const [amount, setAmount] = useState("");
   const [day, setDay] = useState("");
+  const [categoryId, setCategoryId] = useState<string | null>(null);
   const [assetId, setAssetId] = useState<string | null>(null);
   const [budgetType, setBudgetType] = useState<BudgetType>("personal");
   const [isLoading, setIsLoading] = useState(false);
   const [assets, setAssets] = useState<Asset[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [showAssetDropdown, setShowAssetDropdown] = useState(false);
   const [jointBudgetEnabled, setJointBudgetEnabled] = useState(false);
 
@@ -62,7 +66,7 @@ export default function AddFixedItemSheet({
 
   useEffect(() => {
     if (visible) {
-      loadAssets();
+      loadData();
     }
   }, [visible]);
 
@@ -71,6 +75,7 @@ export default function AddFixedItemSheet({
       setName(editItem.name);
       setAmount(editItem.amount.toString());
       setDay(editItem.day.toString());
+      setCategoryId(editItem.categoryId);
       setAssetId(editItem.assetId);
       setBudgetType(editItem.budgetType);
     } else {
@@ -78,16 +83,18 @@ export default function AddFixedItemSheet({
     }
   }, [editItem, visible]);
 
-  const loadAssets = async () => {
+  const loadData = async () => {
     try {
-      const [data, settings] = await Promise.all([
+      const [assetsData, categoriesData, settings] = await Promise.all([
         assetService.getAssets(),
+        categoryService.getCategories('fixed'),
         settingsService.getSettings(),
       ]);
-      setAssets(data);
+      setAssets(assetsData);
+      setCategories(categoriesData);
       setJointBudgetEnabled(settings.jointBudgetEnabled);
     } catch (error) {
-      console.error("Failed to load assets:", error);
+      console.error("Failed to load data:", error);
     }
   };
 
@@ -95,6 +102,7 @@ export default function AddFixedItemSheet({
     setName("");
     setAmount("");
     setDay(new Date().getDate().toString());
+    setCategoryId(null);
     setAssetId(null);
     setBudgetType("personal");
     setShowAssetDropdown(false);
@@ -122,6 +130,7 @@ export default function AddFixedItemSheet({
         type: "fixed",
         amount: amountNum,
         day: dayNum,
+        categoryId,
         assetId,
         budgetType,
       });
@@ -275,12 +284,57 @@ export default function AddFixedItemSheet({
               </View>
             </View>
 
+            {/* Category Selection - Grid */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>카테고리</Text>
+              <View style={styles.categoryGrid}>
+                {categories.map((category) => (
+                  <TouchableOpacity
+                    key={category.id}
+                    style={styles.categoryItem}
+                    onPress={() => setCategoryId(category.id)}
+                  >
+                    <View
+                      style={[
+                        styles.categoryIcon,
+                        { backgroundColor: category.color + "30" },
+                        categoryId === category.id && {
+                          backgroundColor: category.color,
+                        },
+                      ]}
+                    >
+                      <Ionicons
+                        name={category.iconName as keyof typeof Ionicons.glyphMap}
+                        size={18}
+                        color={
+                          categoryId === category.id
+                            ? colors.text.inverse
+                            : category.color
+                        }
+                      />
+                    </View>
+                    <Text
+                      style={[
+                        styles.categoryName,
+                        categoryId === category.id && styles.categoryNameActive,
+                      ]}
+                    >
+                      {category.name}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
             {/* Asset Selection - Dropdown */}
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>결제 자산</Text>
               <TouchableOpacity
                 style={styles.dropdownButton}
-                onPress={() => setShowAssetDropdown(!showAssetDropdown)}
+                onPress={() => {
+                  setShowAssetDropdown(!showAssetDropdown);
+                  setShowCategoryDropdown(false);
+                }}
               >
                 <Text
                   style={[
@@ -572,6 +626,33 @@ const styles = StyleSheet.create({
   },
   dropdownItemTextActive: {
     color: colors.primary.main,
+    fontWeight: typography.fontWeight.medium,
+  },
+  categoryGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+  },
+  categoryItem: {
+    alignItems: "center",
+    width: 70,
+    paddingVertical: spacing.sm,
+  },
+  categoryIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: spacing.xs,
+  },
+  categoryName: {
+    fontSize: typography.fontSize.sm,
+    color: colors.text.secondary,
+    textAlign: "center",
+  },
+  categoryNameActive: {
+    color: colors.text.primary,
     fontWeight: typography.fontWeight.medium,
   },
 });

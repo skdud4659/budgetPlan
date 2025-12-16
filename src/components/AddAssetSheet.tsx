@@ -21,6 +21,7 @@ import {
   assetTypeConfig,
 } from "../styles";
 import type { AssetType, Asset } from "../types";
+import ConfirmModal from "./ConfirmModal";
 
 interface AddAssetSheetProps {
   visible: boolean;
@@ -28,6 +29,7 @@ interface AddAssetSheetProps {
   onSubmit: (data: AssetFormData) => Promise<void>;
   onDelete?: () => void; // 삭제 콜백
   editAsset?: Asset | null; // 수정 모드일 때
+  onBalanceDifferenceTransaction?: (assetId: string, difference: number) => void; // 차액 거래 추가 콜백
 }
 
 interface AssetFormData {
@@ -54,6 +56,7 @@ export default function AddAssetSheet({
   onSubmit,
   onDelete,
   editAsset,
+  onBalanceDifferenceTransaction,
 }: AddAssetSheetProps) {
   const [name, setName] = useState("");
   const [type, setType] = useState<AssetType>("bank");
@@ -62,6 +65,8 @@ export default function AddAssetSheet({
   const [settlementDate, setSettlementDate] = useState("");
   const [isNegative, setIsNegative] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [showDifferenceModal, setShowDifferenceModal] = useState(false);
+  const [pendingDifference, setPendingDifference] = useState<number>(0);
 
   const isEditMode = !!editAsset;
 
@@ -69,8 +74,9 @@ export default function AddAssetSheet({
     if (editAsset) {
       setName(editAsset.name);
       setType(editAsset.type);
-      setBalance(Math.abs(editAsset.balance).toString());
-      setIsNegative(editAsset.balance < 0);
+      // 수정 시 초기 잔액을 표시
+      setBalance(Math.abs(editAsset.initialBalance).toString());
+      setIsNegative(editAsset.initialBalance < 0);
       setBillingDate(editAsset.billingDate?.toString() || "");
       setSettlementDate(editAsset.settlementDate?.toString() || "");
     } else {
@@ -100,6 +106,20 @@ export default function AddAssetSheet({
     const balanceNum = type === "card" ? 0 : parseFloat(balance.replace(/,/g, ""));
     const finalBalance = isNegative ? -balanceNum : balanceNum;
 
+    // 수정 모드이고 초기 잔액이 변경된 경우
+    if (isEditMode && editAsset && type !== "card") {
+      const difference = finalBalance - editAsset.initialBalance;
+      if (difference !== 0 && onBalanceDifferenceTransaction) {
+        setPendingDifference(difference);
+        setShowDifferenceModal(true);
+        return;
+      }
+    }
+
+    await submitAsset(finalBalance);
+  };
+
+  const submitAsset = async (finalBalance: number) => {
     setIsLoading(true);
     try {
       await onSubmit({
@@ -113,6 +133,29 @@ export default function AddAssetSheet({
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleDifferenceConfirm = async () => {
+    const balanceNum = type === "card" ? 0 : parseFloat(balance.replace(/,/g, ""));
+    const finalBalance = isNegative ? -balanceNum : balanceNum;
+
+    setShowDifferenceModal(false);
+
+    // 먼저 자산 수정
+    await submitAsset(finalBalance);
+
+    // 차액 거래 추가 화면으로 이동
+    if (editAsset && onBalanceDifferenceTransaction) {
+      onBalanceDifferenceTransaction(editAsset.id, pendingDifference);
+    }
+  };
+
+  const handleDifferenceSkip = async () => {
+    const balanceNum = type === "card" ? 0 : parseFloat(balance.replace(/,/g, ""));
+    const finalBalance = isNegative ? -balanceNum : balanceNum;
+
+    setShowDifferenceModal(false);
+    await submitAsset(finalBalance);
   };
 
   const formatBalance = (value: string) => {
@@ -378,6 +421,17 @@ export default function AddAssetSheet({
           </ScrollView>
         </View>
       </KeyboardAvoidingView>
+
+      {/* 차액 거래 추가 확인 모달 */}
+      <ConfirmModal
+        visible={showDifferenceModal}
+        title="잔액 변경 감지"
+        message={`잔액이 ${Math.abs(pendingDifference).toLocaleString("ko-KR")}원 ${pendingDifference > 0 ? "증가" : "감소"}했습니다.\n\n이 차액을 거래 내역으로 추가하시겠습니까?`}
+        confirmText="거래 추가"
+        cancelText="건너뛰기"
+        onConfirm={handleDifferenceConfirm}
+        onCancel={handleDifferenceSkip}
+      />
     </Modal>
   );
 }

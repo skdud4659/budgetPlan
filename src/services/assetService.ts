@@ -1,13 +1,14 @@
 import { supabase } from "../config/supabase";
 import type { Asset, AssetType } from "../types";
 
-// DB 스네이크케이스 → 앱 카멜케이스 변환
-const transformAsset = (row: any): Asset => ({
+// DB 스네이크케이스 → 앱 카멜케이스 변환 (거래 합계 포함)
+const transformAsset = (row: any, transactionSum: number = 0): Asset => ({
   id: row.id,
   userId: row.user_id,
   name: row.name,
   type: row.type as AssetType,
-  balance: parseFloat(row.balance),
+  initialBalance: parseFloat(row.initial_balance || row.balance || 0),
+  balance: parseFloat(row.initial_balance || row.balance || 0) + transactionSum,
   billingDate: row.billing_date,
   settlementDate: row.settlement_date,
   sortOrder: row.sort_order,
@@ -16,18 +17,60 @@ const transformAsset = (row: any): Asset => ({
 });
 
 export const assetService = {
-  // 자산 목록 조회
-  async getAssets(): Promise<Asset[]> {
+  // 자산별 거래 합계 계산
+  async calculateTransactionSums(): Promise<Map<string, number>> {
     const { data, error } = await supabase
-      .from("assets")
-      .select("*")
-      .order("sort_order", { ascending: true });
+      .from("transactions")
+      .select("asset_id, to_asset_id, type, amount");
 
     if (error) throw error;
-    return (data || []).map(transformAsset);
+
+    const sums = new Map<string, number>();
+
+    (data || []).forEach((t) => {
+      const amount = parseFloat(t.amount);
+
+      // 출금 자산 (지출, 이체 출금)
+      if (t.asset_id) {
+        const current = sums.get(t.asset_id) || 0;
+        if (t.type === "expense") {
+          sums.set(t.asset_id, current - amount);
+        } else if (t.type === "income") {
+          sums.set(t.asset_id, current + amount);
+        } else if (t.type === "transfer") {
+          sums.set(t.asset_id, current - amount);
+        }
+      }
+
+      // 이체 입금 자산
+      if (t.type === "transfer" && t.to_asset_id) {
+        const current = sums.get(t.to_asset_id) || 0;
+        sums.set(t.to_asset_id, current + amount);
+      }
+    });
+
+    return sums;
   },
 
-  // 자산 단일 조회
+  // 자산 목록 조회 (거래 기반 잔액 계산)
+  async getAssets(): Promise<Asset[]> {
+    const [assetsResult, transactionSums] = await Promise.all([
+      supabase
+        .from("assets")
+        .select("*")
+        .order("sort_order", { ascending: true }),
+      this.calculateTransactionSums(),
+    ]);
+
+    if (assetsResult.error) throw assetsResult.error;
+
+    return (assetsResult.data || []).map((row) => {
+      const sum = transactionSums.get(row.id) || 0;
+      return transformAsset(row, sum);
+    });
+  },
+
+  // 자산 단일 조회 (거래 기반 잔액 계산)
   async getAsset(id: string): Promise<Asset | null> {
     const { data, error } = await supabase
       .from("assets")
@@ -36,7 +79,36 @@ export const assetService = {
       .single();
 
     if (error) throw error;
-    return data ? transformAsset(data) : null;
+    if (!data) return null;
+
+    // 해당 자산의 거래 합계 계산
+    const { data: transactions, error: txError } = await supabase
+      .from("transactions")
+      .select("asset_id, to_asset_id, type, amount")
+      .or(`asset_id.eq.${id},to_asset_id.eq.${id}`);
+
+    if (txError) throw txError;
+
+    let sum = 0;
+    (transactions || []).forEach((t) => {
+      const amount = parseFloat(t.amount);
+
+      if (t.asset_id === id) {
+        if (t.type === "expense") {
+          sum -= amount;
+        } else if (t.type === "income") {
+          sum += amount;
+        } else if (t.type === "transfer") {
+          sum -= amount;
+        }
+      }
+
+      if (t.type === "transfer" && t.to_asset_id === id) {
+        sum += amount;
+      }
+    });
+
+    return transformAsset(data, sum);
   },
 
   // 자산 추가
@@ -69,7 +141,7 @@ export const assetService = {
         user_id: user.id,
         name: asset.name,
         type: asset.type,
-        balance: asset.balance,
+        initial_balance: asset.balance,
         billing_date: asset.billingDate || null,
         settlement_date: asset.settlementDate || null,
         sort_order: sortOrder,
@@ -87,7 +159,7 @@ export const assetService = {
     updates: {
       name?: string;
       type?: AssetType;
-      balance?: number;
+      balance?: number; // 이제 initialBalance로 저장됨
       billingDate?: number | null;
       settlementDate?: number | null;
       sortOrder?: number;
@@ -99,7 +171,7 @@ export const assetService = {
 
     if (updates.name !== undefined) updateData.name = updates.name;
     if (updates.type !== undefined) updateData.type = updates.type;
-    if (updates.balance !== undefined) updateData.balance = updates.balance;
+    if (updates.balance !== undefined) updateData.initial_balance = updates.balance;
     if (updates.billingDate !== undefined)
       updateData.billing_date = updates.billingDate;
     if (updates.settlementDate !== undefined)
@@ -115,32 +187,14 @@ export const assetService = {
       .single();
 
     if (error) throw error;
-    return transformAsset(data);
+
+    // 업데이트 후 거래 기반 잔액 재계산
+    return (await this.getAsset(id))!;
   },
 
   // 자산 삭제
   async deleteAsset(id: string): Promise<void> {
     const { error } = await supabase.from("assets").delete().eq("id", id);
-
-    if (error) throw error;
-  },
-
-  // 자산 잔액 업데이트 (거래 발생 시)
-  async updateBalance(id: string, amount: number): Promise<void> {
-    const { data: asset, error: fetchError } = await supabase
-      .from("assets")
-      .select("balance")
-      .eq("id", id)
-      .single();
-
-    if (fetchError) throw fetchError;
-
-    const newBalance = parseFloat(asset.balance) + amount;
-
-    const { error } = await supabase
-      .from("assets")
-      .update({ balance: newBalance, updated_at: new Date().toISOString() })
-      .eq("id", id);
 
     if (error) throw error;
   },

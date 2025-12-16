@@ -45,9 +45,14 @@ export default function ScheduledScreen() {
     }
   }, []);
 
-  // 탭이 포커스될 때마다 데이터 새로고침
+  // 탭이 포커스될 때마다 데이터 새로고침 및 상태 초기화
   useFocusEffect(
     useCallback(() => {
+      // 모든 모달/시트 상태 초기화
+      setShowAddSheet(false);
+      setEditingItem(null);
+      setDeleteTarget(null);
+
       loadFixedItems();
     }, [loadFixedItems])
   );

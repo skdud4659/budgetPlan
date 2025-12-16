@@ -9,10 +9,26 @@ const transformFixedItem = (row: any): FixedItem => ({
   type: row.type as FixedItemType,
   amount: parseFloat(row.amount),
   day: row.day,
+  categoryId: row.category_id,
   assetId: row.asset_id,
   budgetType: row.budget_type as BudgetType,
   isActive: row.is_active,
   createdAt: row.created_at,
+  // 조인된 카테고리 정보
+  category: row.categories
+    ? {
+        id: row.categories.id,
+        userId: row.categories.user_id,
+        name: row.categories.name,
+        iconName: row.categories.icon_name,
+        color: row.categories.color,
+        type: row.categories.type,
+        sortOrder: row.categories.sort_order,
+        isDefault: row.categories.is_default,
+        isHidden: row.categories.is_hidden,
+        createdAt: row.categories.created_at,
+      }
+    : undefined,
   // 조인된 자산 정보
   asset: row.assets
     ? {
@@ -38,6 +54,7 @@ export const fixedItemService = {
       .select(
         `
         *,
+        categories:category_id (id, user_id, name, icon_name, color, type, sort_order, is_default, is_hidden, created_at),
         assets:asset_id (id, user_id, name, type, balance, billing_date, settlement_date, sort_order, created_at, updated_at)
       `
       )
@@ -55,6 +72,7 @@ export const fixedItemService = {
       .select(
         `
         *,
+        categories:category_id (id, user_id, name, icon_name, color, type, sort_order, is_default, is_hidden, created_at),
         assets:asset_id (id, user_id, name, type, balance, billing_date, settlement_date, sort_order, created_at, updated_at)
       `
       )
@@ -71,6 +89,7 @@ export const fixedItemService = {
     type: FixedItemType;
     amount: number;
     day: number;
+    categoryId?: string | null;
     assetId?: string | null;
     budgetType: BudgetType;
   }): Promise<FixedItem> {
@@ -87,12 +106,14 @@ export const fixedItemService = {
         type: item.type,
         amount: item.amount,
         day: item.day,
+        category_id: item.categoryId || null,
         asset_id: item.assetId || null,
         budget_type: item.budgetType,
       })
       .select(
         `
         *,
+        categories:category_id (id, user_id, name, icon_name, color, type, sort_order, is_default, is_hidden, created_at),
         assets:asset_id (id, user_id, name, type, balance, billing_date, settlement_date, sort_order, created_at, updated_at)
       `
       )
@@ -110,6 +131,7 @@ export const fixedItemService = {
       type?: FixedItemType;
       amount?: number;
       day?: number;
+      categoryId?: string | null;
       assetId?: string | null;
       budgetType?: BudgetType;
       isActive?: boolean;
@@ -121,6 +143,7 @@ export const fixedItemService = {
     if (updates.type !== undefined) updateData.type = updates.type;
     if (updates.amount !== undefined) updateData.amount = updates.amount;
     if (updates.day !== undefined) updateData.day = updates.day;
+    if (updates.categoryId !== undefined) updateData.category_id = updates.categoryId;
     if (updates.assetId !== undefined) updateData.asset_id = updates.assetId;
     if (updates.budgetType !== undefined)
       updateData.budget_type = updates.budgetType;
@@ -133,6 +156,7 @@ export const fixedItemService = {
       .select(
         `
         *,
+        categories:category_id (id, user_id, name, icon_name, color, type, sort_order, is_default, is_hidden, created_at),
         assets:asset_id (id, user_id, name, type, balance, billing_date, settlement_date, sort_order, created_at, updated_at)
       `
       )
