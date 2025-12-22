@@ -17,7 +17,7 @@ export default function Index() {
 
   // 인증 상태에 따라 분기
   if (isAuthenticated) {
-    return <Redirect href="/(tabs)/transactions" />;
+    return <Redirect href="/(tabs)" />;
   }
 
   return <Redirect href="/(auth)/login" />;

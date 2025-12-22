@@ -41,7 +41,7 @@ export default function LoginScreen() {
     setIsKakaoLoading(true);
     try {
       await kakaoAuthService.signInWithKakao();
-      router.replace('/(tabs)/home');
+      router.replace('/(tabs)');
     } catch (error: any) {
       if (error.message !== '로그인이 취소되었습니다.') {
         showAlert('카카오 로그인 실패', error.message || '카카오 로그인에 실패했습니다.');
@@ -57,7 +57,7 @@ export default function LoginScreen() {
     setIsLoading(true);
     try {
       await authService.signIn(email, password);
-      router.replace('/(tabs)/home');
+      router.replace('/(tabs)');
     } catch (error: any) {
       showAlert('로그인 실패', error.message || '이메일 또는 비밀번호를 확인해주세요.');
     } finally {

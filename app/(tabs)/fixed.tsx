@@ -6,6 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
   Animated,
+  ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -24,7 +25,7 @@ import { useSettings } from "../../src/contexts/SettingsContext";
 import AddFixedItemSheet from "../../src/components/AddFixedItemSheet";
 import ConfirmModal from "../../src/components/ConfirmModal";
 
-export default function ScheduledScreen() {
+export default function FixedScreen() {
   const { jointBudgetEnabled } = useSettings();
 
   const [fixedItems, setFixedItems] = useState<FixedItem[]>([]);
@@ -32,10 +33,12 @@ export default function ScheduledScreen() {
   const [showAddSheet, setShowAddSheet] = useState(false);
   const [editingItem, setEditingItem] = useState<FixedItem | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<FixedItem | null>(null);
+  const [budgetTypeFilter, setBudgetTypeFilter] = useState<'all' | 'personal' | 'joint'>('all');
 
   // 정기지출 목록 불러오기
   const loadFixedItems = useCallback(async () => {
     try {
+      setIsLoading(true);
       const data = await fixedItemService.getFixedItems();
       setFixedItems(data);
     } catch (error: any) {
@@ -45,10 +48,8 @@ export default function ScheduledScreen() {
     }
   }, []);
 
-  // 탭이 포커스될 때마다 데이터 새로고침 및 상태 초기화
   useFocusEffect(
     useCallback(() => {
-      // 모든 모달/시트 상태 초기화
       setShowAddSheet(false);
       setEditingItem(null);
       setDeleteTarget(null);
@@ -63,6 +64,7 @@ export default function ScheduledScreen() {
     type: FixedItemType;
     amount: number;
     day: number;
+    categoryId: string | null;
     assetId: string | null;
     budgetType: BudgetType;
   }) => {
@@ -78,19 +80,16 @@ export default function ScheduledScreen() {
     }
   };
 
-  // 정기지출 수정 모달 열기
   const handleEditItem = (item: FixedItem) => {
     setEditingItem(item);
     setShowAddSheet(true);
   };
 
-  // 모달 닫기
   const handleCloseSheet = () => {
     setShowAddSheet(false);
     setEditingItem(null);
   };
 
-  // 정기지출 삭제 처리
   const handleDeleteItem = (item: FixedItem) => {
     setDeleteTarget(item);
   };
@@ -100,7 +99,7 @@ export default function ScheduledScreen() {
 
     try {
       await fixedItemService.deleteFixedItem(deleteTarget.id);
-      handleCloseSheet(); // 바텀시트 닫기
+      handleCloseSheet();
       loadFixedItems();
     } catch (error: any) {
       console.log("Delete error", error);
@@ -109,11 +108,15 @@ export default function ScheduledScreen() {
     }
   };
 
-  // 고정비만 필터링
-  const fixedTypeItems = fixedItems.filter((item) => item.type === "fixed");
+  // 필터링
+  const filteredItems = fixedItems.filter((item) => {
+    if (item.type !== "fixed") return false;
+    if (budgetTypeFilter === 'all') return true;
+    return item.budgetType === budgetTypeFilter;
+  });
 
-  // 고정비 합계
-  const totalFixed = fixedTypeItems.reduce((sum, item) => sum + item.amount, 0);
+  // 합계
+  const totalFixed = filteredItems.reduce((sum, item) => sum + item.amount, 0);
 
   const formatCurrency = (amount: number) => {
     return amount.toLocaleString("ko-KR") + "원";
@@ -123,7 +126,7 @@ export default function ScheduledScreen() {
     <SafeAreaView style={styles.container} edges={["top"]}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>정기지출</Text>
+        <Text style={styles.headerTitle}>고정비용</Text>
         <TouchableOpacity
           style={styles.addButton}
           onPress={() => setShowAddSheet(true)}
@@ -131,6 +134,68 @@ export default function ScheduledScreen() {
           <Ionicons name="add" size={24} color={colors.primary.main} />
         </TouchableOpacity>
       </View>
+
+      {/* 안내 문구 */}
+      <View style={styles.infoCardTop}>
+        <Ionicons name="information-circle-outline" size={20} color={colors.text.tertiary} />
+        <Text style={styles.infoText}>
+          고정비용은 매월 지정한 날짜에 자동으로 거래 내역에 추가됩니다
+        </Text>
+      </View>
+
+      {/* Budget Type Filter */}
+      {jointBudgetEnabled && (
+        <View style={styles.filterRow}>
+          <TouchableOpacity
+            style={[
+              styles.filterButton,
+              budgetTypeFilter === 'all' && styles.filterButtonActive,
+            ]}
+            onPress={() => setBudgetTypeFilter('all')}
+          >
+            <Text
+              style={[
+                styles.filterButtonText,
+                budgetTypeFilter === 'all' && styles.filterButtonTextActive,
+              ]}
+            >
+              전체
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.filterButton,
+              budgetTypeFilter === 'personal' && styles.filterButtonActive,
+            ]}
+            onPress={() => setBudgetTypeFilter('personal')}
+          >
+            <Text
+              style={[
+                styles.filterButtonText,
+                budgetTypeFilter === 'personal' && styles.filterButtonTextActive,
+              ]}
+            >
+              개인
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.filterButton,
+              budgetTypeFilter === 'joint' && styles.filterButtonActive,
+            ]}
+            onPress={() => setBudgetTypeFilter('joint')}
+          >
+            <Text
+              style={[
+                styles.filterButtonText,
+                budgetTypeFilter === 'joint' && styles.filterButtonTextActive,
+              ]}
+            >
+              공동
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       <ScrollView
         style={styles.scrollView}
@@ -140,11 +205,11 @@ export default function ScheduledScreen() {
         {/* Summary */}
         <View style={styles.summaryCard}>
           <View style={styles.summaryHeader}>
-            <Text style={styles.summaryTitle}>이번 달 정기지출</Text>
+            <Text style={styles.summaryTitle}>월 고정비용</Text>
           </View>
 
           <View style={styles.totalRow}>
-            <Text style={styles.totalLabel}>합계</Text>
+            <Text style={styles.totalLabel}>{filteredItems.length}건</Text>
             <Text style={styles.totalAmount}>
               {formatCurrency(totalFixed)}
             </Text>
@@ -152,43 +217,46 @@ export default function ScheduledScreen() {
         </View>
 
         {/* Fixed Items List */}
-        {fixedTypeItems.length > 0 && (
-          <View style={styles.section}>
-            <View style={styles.listContainer}>
-              {fixedTypeItems.map((item, index) => (
-                <FixedItemRow
-                  key={item.id}
-                  item={item}
-                  isLast={index === fixedTypeItems.length - 1}
-                  onEdit={() => handleEditItem(item)}
-                  onDelete={() => handleDeleteItem(item)}
-                  showJointBadge={jointBudgetEnabled}
-                />
-              ))}
-            </View>
+        {isLoading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="small" color={colors.primary.main} />
           </View>
-        )}
-
-        {/* Empty State */}
-        {!isLoading && fixedTypeItems.length === 0 && (
+        ) : filteredItems.length > 0 ? (
+          <View style={styles.listContainer}>
+            {filteredItems.map((item, index) => (
+              <FixedItemRow
+                key={item.id}
+                item={item}
+                isLast={index === filteredItems.length - 1}
+                onEdit={() => handleEditItem(item)}
+                onDelete={() => handleDeleteItem(item)}
+                showJointBadge={jointBudgetEnabled}
+              />
+            ))}
+          </View>
+        ) : (
           <View style={styles.emptyContainer}>
             <Ionicons
-              name="calendar-outline"
+              name="repeat-outline"
               size={64}
               color={colors.text.tertiary}
             />
-            <Text style={styles.emptyText}>등록된 정기지출이 없습니다</Text>
+            <Text style={styles.emptyText}>등록된 고정비용이 없습니다</Text>
+            <Text style={styles.emptySubtext}>
+              매월 고정적으로 나가는 비용을 등록해 보세요
+            </Text>
             <TouchableOpacity
               style={styles.emptyButton}
               onPress={() => setShowAddSheet(true)}
             >
-              <Text style={styles.emptyButtonText}>정기지출 추가하기</Text>
+              <Text style={styles.emptyButtonText}>고정비용 추가하기</Text>
             </TouchableOpacity>
           </View>
         )}
+
       </ScrollView>
 
-      {/* 정기지출 추가/수정 바텀시트 */}
+      {/* 고정비용 추가/수정 바텀시트 */}
       <AddFixedItemSheet
         visible={showAddSheet}
         onClose={handleCloseSheet}
@@ -200,7 +268,7 @@ export default function ScheduledScreen() {
       {/* 삭제 확인 모달 */}
       <ConfirmModal
         visible={!!deleteTarget}
-        title="정기지출 삭제"
+        title="고정비용 삭제"
         message={`"${deleteTarget?.name}"을(를) 삭제하시겠습니까?`}
         confirmText="삭제"
         cancelText="취소"
@@ -230,6 +298,9 @@ function FixedItemRow({
   const formatCurrency = (amount: number) => {
     return amount.toLocaleString("ko-KR") + "원";
   };
+
+  const categoryColor = item.category?.color || colors.text.tertiary;
+  const categoryIcon = item.category?.iconName || "repeat";
 
   const renderRightActions = (
     progress: Animated.AnimatedInterpolation<number>,
@@ -272,17 +343,29 @@ function FixedItemRow({
         activeOpacity={0.7}
         onPress={onEdit}
       >
+        <View
+          style={[
+            styles.itemIcon,
+            { backgroundColor: categoryColor + "20" },
+          ]}
+        >
+          <Ionicons
+            name={categoryIcon as keyof typeof Ionicons.glyphMap}
+            size={20}
+            color={categoryColor}
+          />
+        </View>
         <View style={styles.itemLeft}>
           <View style={styles.itemHeader}>
             <Text style={styles.itemName}>{item.name}</Text>
             {showJointBadge && item.budgetType === "joint" && (
-              <View style={styles.jointBadge}>
-                <Text style={styles.jointBadgeText}>공동</Text>
+              <View style={styles.jointIndicator}>
+                <Ionicons name="people" size={12} color={colors.secondary.dark} />
               </View>
             )}
           </View>
           <Text style={styles.itemDate}>
-            {item.day}일{item.asset?.name && ` · ${item.asset.name}`}
+            매월 {item.day}일{item.asset?.name && ` · ${item.asset.name}`}
           </Text>
         </View>
         <Text style={styles.itemAmount}>{formatCurrency(item.amount)}</Text>
@@ -316,6 +399,33 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  filterRow: {
+    flexDirection: 'row',
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.md,
+    backgroundColor: colors.background.tertiary,
+    borderRadius: borderRadius.base,
+    padding: 2,
+  },
+  filterButton: {
+    flex: 1,
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+    borderRadius: borderRadius.sm,
+  },
+  filterButtonActive: {
+    backgroundColor: colors.background.secondary,
+    ...shadows.sm,
+  },
+  filterButtonText: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.medium,
+    color: colors.text.tertiary,
+  },
+  filterButtonTextActive: {
+    color: colors.primary.main,
+    fontWeight: typography.fontWeight.semiBold,
+  },
   scrollView: {
     flex: 1,
   },
@@ -334,7 +444,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.base,
   },
   summaryTitle: {
-    fontSize: typography.fontSize.base,
+    fontSize: typography.fontSize.md,
     fontWeight: typography.fontWeight.semiBold,
     color: colors.text.primary,
   },
@@ -344,17 +454,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   totalLabel: {
-    fontSize: typography.fontSize.base,
-    fontWeight: typography.fontWeight.medium,
-    color: colors.text.primary,
+    fontSize: typography.fontSize.sm,
+    color: colors.text.tertiary,
   },
   totalAmount: {
     fontSize: typography.fontSize.xl,
     fontWeight: typography.fontWeight.bold,
     color: colors.primary.main,
   },
-  section: {
-    marginBottom: spacing.lg,
+  loadingContainer: {
+    padding: spacing.xl,
+    alignItems: 'center',
   },
   listContainer: {
     backgroundColor: colors.background.secondary,
@@ -371,7 +481,6 @@ const styles = StyleSheet.create({
   itemRow: {
     backgroundColor: colors.background.secondary,
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.base,
@@ -379,6 +488,14 @@ const styles = StyleSheet.create({
   itemRowBorder: {
     borderBottomWidth: 1,
     borderBottomColor: colors.border.light,
+  },
+  itemIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: borderRadius.base,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: spacing.md,
   },
   itemLeft: {
     flex: 1,
@@ -391,18 +508,16 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.base,
     fontWeight: typography.fontWeight.medium,
     color: colors.text.primary,
+    flexShrink: 1,
   },
-  jointBadge: {
+  jointIndicator: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
     backgroundColor: colors.secondary.light,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-    borderRadius: borderRadius.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
     marginLeft: spacing.sm,
-  },
-  jointBadgeText: {
-    fontSize: typography.fontSize.xs,
-    fontWeight: typography.fontWeight.medium,
-    color: colors.secondary.dark,
   },
   itemDate: {
     fontSize: typography.fontSize.sm,
@@ -418,11 +533,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: spacing["3xl"],
+    backgroundColor: colors.background.secondary,
+    borderRadius: borderRadius.lg,
   },
   emptyText: {
     fontSize: typography.fontSize.base,
     color: colors.text.tertiary,
     marginTop: spacing.md,
+  },
+  emptySubtext: {
+    fontSize: typography.fontSize.sm,
+    color: colors.text.tertiary,
+    marginTop: spacing.xs,
     marginBottom: spacing.lg,
   },
   emptyButton: {
@@ -435,5 +557,21 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.md,
     fontWeight: typography.fontWeight.semiBold,
     color: colors.text.inverse,
+  },
+  infoCardTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.background.tertiary,
+    borderRadius: borderRadius.base,
+    padding: spacing.md,
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.md,
+    gap: spacing.sm,
+  },
+  infoText: {
+    flex: 1,
+    fontSize: typography.fontSize.sm,
+    color: colors.text.tertiary,
+    lineHeight: 18,
   },
 });

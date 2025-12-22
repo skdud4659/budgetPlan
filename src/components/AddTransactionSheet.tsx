@@ -70,7 +70,8 @@ export default function AddTransactionSheet({
 
   const getInitialFormData = (): TransactionFormData => ({
     title: editTransaction?.title || defaultTitle || "",
-    amount: editTransaction?.amount?.toString() || defaultAmount?.toString() || "",
+    amount:
+      editTransaction?.amount?.toString() || defaultAmount?.toString() || "",
     type: editTransaction?.type || defaultType || "expense",
     budgetType: editTransaction?.budgetType || "personal",
     categoryId: editTransaction?.categoryId || null,
@@ -101,6 +102,7 @@ export default function AddTransactionSheet({
   const [calendarMonth, setCalendarMonth] = useState(new Date());
   const [showCalendar, setShowCalendar] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteTargetTitle, setDeleteTargetTitle] = useState("");
   const [isDeleting, setIsDeleting] = useState(false);
   const [jointBudgetEnabled, setJointBudgetEnabled] = useState(false);
   const [alertModal, setAlertModal] = useState<{
@@ -150,7 +152,10 @@ export default function AddTransactionSheet({
         if (defaultAssetId) {
           setFormData((prev) => ({ ...prev, assetId: defaultAssetId }));
         } else if (settings.defaultAssetId) {
-          setFormData((prev) => ({ ...prev, assetId: settings.defaultAssetId }));
+          setFormData((prev) => ({
+            ...prev,
+            assetId: settings.defaultAssetId,
+          }));
         }
       }
     } catch (error) {
@@ -230,7 +235,10 @@ export default function AddTransactionSheet({
       handleClose();
     } catch (error: any) {
       console.error("거래 저장 실패:", error);
-      showAlert("저장 실패", error?.message || "거래를 저장하는데 실패했습니다.");
+      showAlert(
+        "저장 실패",
+        error?.message || "거래를 저장하는데 실패했습니다."
+      );
     } finally {
       setIsSaving(false);
     }
@@ -264,17 +272,20 @@ export default function AddTransactionSheet({
   const handleDelete = async () => {
     if (!editTransaction) return;
 
+    const transactionId = editTransaction.id;
+
+    // 먼저 모달을 닫고 시트도 닫음
+    setShowDeleteConfirm(false);
+    handleClose();
+
     try {
       setIsDeleting(true);
-      await transactionService.deleteTransaction(editTransaction.id);
+      await transactionService.deleteTransaction(transactionId);
       onSuccess?.();
-      handleClose();
     } catch (error: any) {
       console.error("거래 삭제 실패:", error);
-      showAlert("삭제 실패", error?.message || "거래를 삭제하는데 실패했습니다.");
     } finally {
       setIsDeleting(false);
-      setShowDeleteConfirm(false);
     }
   };
 
@@ -379,7 +390,10 @@ export default function AddTransactionSheet({
               <View style={styles.headerActions}>
                 {isEditMode && (
                   <TouchableOpacity
-                    onPress={() => setShowDeleteConfirm(true)}
+                    onPress={() => {
+                      setDeleteTargetTitle(editTransaction?.title || "");
+                      setShowDeleteConfirm(true);
+                    }}
                     style={styles.headerIconButton}
                     disabled={isSaving}
                   >
@@ -981,7 +995,11 @@ export default function AddTransactionSheet({
                         });
                       }}
                     >
-                      <Ionicons name="swap-vertical" size={18} color={colors.primary.main} />
+                      <Ionicons
+                        name="swap-vertical"
+                        size={18}
+                        color={colors.primary.main}
+                      />
                     </TouchableOpacity>
                     <View style={styles.swapDividerLine} />
                   </View>
@@ -991,7 +1009,9 @@ export default function AddTransactionSheet({
                     <Text style={styles.inputLabel}>입금 자산</Text>
                     <TouchableOpacity
                       style={styles.dropdownButton}
-                      onPress={() => setShowToAssetDropdown(!showToAssetDropdown)}
+                      onPress={() =>
+                        setShowToAssetDropdown(!showToAssetDropdown)
+                      }
                     >
                       {selectedToAsset ? (
                         <View style={styles.dropdownSelectedRow}>
@@ -1010,7 +1030,9 @@ export default function AddTransactionSheet({
                         </Text>
                       )}
                       <Ionicons
-                        name={showToAssetDropdown ? "chevron-up" : "chevron-down"}
+                        name={
+                          showToAssetDropdown ? "chevron-up" : "chevron-down"
+                        }
                         size={20}
                         color={colors.text.tertiary}
                       />
@@ -1029,7 +1051,10 @@ export default function AddTransactionSheet({
                                   styles.dropdownItemActive,
                               ]}
                               onPress={() => {
-                                setFormData({ ...formData, toAssetId: asset.id });
+                                setFormData({
+                                  ...formData,
+                                  toAssetId: asset.id,
+                                });
                                 setShowToAssetDropdown(false);
                               }}
                             >
@@ -1282,7 +1307,7 @@ export default function AddTransactionSheet({
       <ConfirmModal
         visible={showDeleteConfirm}
         title="거래 삭제"
-        message={`"${editTransaction?.title}"을(를) 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`}
+        message={`"${deleteTargetTitle}"을(를) 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`}
         confirmText="삭제"
         cancelText="취소"
         isDestructive={true}

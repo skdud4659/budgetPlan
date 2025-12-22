@@ -18,12 +18,12 @@ export default function TabLayout() {
       }}
     >
       <Tabs.Screen
-        name="transactions"
+        name="index"
         options={{
-          title: '내역',
+          title: '홈',
           tabBarIcon: ({ focused, color }) => (
             <TabIcon
-              name={focused ? 'receipt' : 'receipt-outline'}
+              name={focused ? 'home' : 'home-outline'}
               color={color}
               focused={focused}
             />
@@ -31,12 +31,12 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="budget"
+        name="living"
         options={{
-          title: '예산',
+          title: '생활비',
           tabBarIcon: ({ focused, color }) => (
             <TabIcon
-              name={focused ? 'calculator' : 'calculator-outline'}
+              name={focused ? 'wallet' : 'wallet-outline'}
               color={color}
               focused={focused}
             />
@@ -44,9 +44,16 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="scheduled"
+        name="fixed"
         options={{
-          href: null, // 숨김 (예산 탭으로 통합)
+          title: '고정비용',
+          tabBarIcon: ({ focused, color }) => (
+            <TabIcon
+              name={focused ? 'repeat' : 'repeat-outline'}
+              color={color}
+              focused={focused}
+            />
+          ),
         }}
       />
       <Tabs.Screen

@@ -120,6 +120,42 @@ export const fixedItemService = {
       .single();
 
     if (error) throw error;
+
+    // 이번 달 거래내역도 즉시 생성
+    const today = new Date();
+    const currentYear = today.getFullYear();
+    const currentMonth = today.getMonth() + 1;
+    const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
+    const actualDay = Math.min(item.day, daysInMonth);
+    const transactionDate = `${currentYear}-${String(currentMonth).padStart(2, "0")}-${String(actualDay).padStart(2, "0")}`;
+
+    // 이미 동일한 거래가 있는지 확인
+    const { data: existing } = await supabase
+      .from("transactions")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("title", item.name)
+      .eq("amount", item.amount)
+      .eq("date", transactionDate)
+      .eq("type", "expense")
+      .single();
+
+    // 중복이 아니면 거래 생성
+    if (!existing) {
+      await supabase.from("transactions").insert({
+        user_id: user.id,
+        title: item.name,
+        amount: item.amount,
+        date: transactionDate,
+        type: "expense",
+        category_id: item.categoryId || null,
+        asset_id: item.assetId || null,
+        budget_type: item.budgetType,
+        is_installment: false,
+        include_in_living_expense: false,
+      });
+    }
+
     return transformFixedItem(data);
   },
 
@@ -168,6 +204,38 @@ export const fixedItemService = {
 
   // 정기지출 삭제 (hard delete)
   async deleteFixedItem(id: string): Promise<void> {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) throw new Error("로그인이 필요합니다.");
+
+    // 먼저 삭제할 정기지출 정보 조회
+    const { data: fixedItem } = await supabase
+      .from("fixed_items")
+      .select("name, amount")
+      .eq("id", id)
+      .single();
+
+    if (fixedItem) {
+      // 이번 달 해당 정기지출로 생성된 거래내역도 삭제
+      const today = new Date();
+      const currentYear = today.getFullYear();
+      const currentMonth = today.getMonth() + 1;
+      const monthStart = `${currentYear}-${String(currentMonth).padStart(2, "0")}-01`;
+      const monthEnd = `${currentYear}-${String(currentMonth).padStart(2, "0")}-31`;
+
+      await supabase
+        .from("transactions")
+        .delete()
+        .eq("user_id", user.id)
+        .eq("title", fixedItem.name)
+        .eq("amount", fixedItem.amount)
+        .eq("type", "expense")
+        .gte("date", monthStart)
+        .lte("date", monthEnd);
+    }
+
+    // 정기지출 삭제
     const { error } = await supabase.from("fixed_items").delete().eq("id", id);
 
     if (error) throw error;

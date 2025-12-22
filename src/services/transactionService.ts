@@ -703,6 +703,7 @@ export const transactionService = {
           amount: item.amount,
           date: transactionDate,
           type: "expense",
+          category_id: item.categoryId || null,
           asset_id: item.assetId || null,
           budget_type: item.budgetType,
           is_installment: false,

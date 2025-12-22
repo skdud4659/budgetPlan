@@ -333,7 +333,6 @@ export default function AddFixedItemSheet({
                 style={styles.dropdownButton}
                 onPress={() => {
                   setShowAssetDropdown(!showAssetDropdown);
-                  setShowCategoryDropdown(false);
                 }}
               >
                 <Text

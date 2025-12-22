@@ -15,7 +15,7 @@ import { transactionService } from '../src/services/transactionService';
 import { useSettings } from '../src/contexts/SettingsContext';
 import type { Transaction, Category } from '../src/types';
 
-type StatType = 'expense' | 'income';
+type StatType = 'living' | 'fixed';
 
 interface CategoryStat {
   category: Category | null;
@@ -27,7 +27,7 @@ interface CategoryStat {
 export default function StatisticsScreen() {
   const { monthStartDay } = useSettings();
   const [selectedMonth, setSelectedMonth] = useState(new Date());
-  const [statType, setStatType] = useState<StatType>('expense');
+  const [statType, setStatType] = useState<StatType>('living');
   const [isLoading, setIsLoading] = useState(true);
   const [categoryStats, setCategoryStats] = useState<CategoryStat[]>([]);
   const [totalAmount, setTotalAmount] = useState(0);
@@ -59,8 +59,18 @@ export default function StatisticsScreen() {
   );
 
   const calculateStats = (transactions: Transaction[], type: StatType) => {
-    // 해당 타입의 거래만 필터링
-    const filteredTransactions = transactions.filter(t => t.type === type);
+    // 타입에 따라 필터링
+    // living: 지출 중 고정비용 제외
+    // fixed: 지출 중 고정비용만
+    const filteredTransactions = transactions.filter(t => {
+      if (t.type !== 'expense') return false;
+
+      if (type === 'living') {
+        return t.category?.type !== 'fixed';
+      } else {
+        return t.category?.type === 'fixed';
+      }
+    });
 
     // 카테고리별 합계 계산
     const categoryMap = new Map<string | null, { category: Category | null; amount: number; count: number }>();
@@ -181,7 +191,7 @@ export default function StatisticsScreen() {
             })}
             <View style={styles.donutHole}>
               <Text style={styles.donutTotalLabel}>
-                {statType === 'expense' ? '총 지출' : '총 수입'}
+                {statType === 'living' ? '생활비' : '고정비용'}
               </Text>
               <Text style={styles.donutTotalAmount}>
                 {formatCurrency(totalAmount)}
@@ -238,19 +248,19 @@ export default function StatisticsScreen() {
       {/* Type Toggle */}
       <View style={styles.typeToggle}>
         <TouchableOpacity
-          style={[styles.typeButton, statType === 'expense' && styles.typeButtonActiveExpense]}
-          onPress={() => setStatType('expense')}
+          style={[styles.typeButton, statType === 'living' && styles.typeButtonActiveLiving]}
+          onPress={() => setStatType('living')}
         >
-          <Text style={[styles.typeButtonText, statType === 'expense' && styles.typeButtonTextActive]}>
-            지출
+          <Text style={[styles.typeButtonText, statType === 'living' && styles.typeButtonTextActive]}>
+            생활비
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.typeButton, statType === 'income' && styles.typeButtonActiveIncome]}
-          onPress={() => setStatType('income')}
+          style={[styles.typeButton, statType === 'fixed' && styles.typeButtonActiveFixed]}
+          onPress={() => setStatType('fixed')}
         >
-          <Text style={[styles.typeButtonText, statType === 'income' && styles.typeButtonTextActive]}>
-            수입
+          <Text style={[styles.typeButtonText, statType === 'fixed' && styles.typeButtonTextActive]}>
+            고정비용
           </Text>
         </TouchableOpacity>
       </View>
@@ -274,12 +284,12 @@ export default function StatisticsScreen() {
             {categoryStats.length === 0 ? (
               <View style={styles.emptyList}>
                 <Ionicons
-                  name={statType === 'expense' ? 'cart-outline' : 'cash-outline'}
+                  name={statType === 'living' ? 'wallet-outline' : 'repeat-outline'}
                   size={48}
                   color={colors.text.tertiary}
                 />
                 <Text style={styles.emptyListText}>
-                  {statType === 'expense' ? '지출 내역이 없습니다' : '수입 내역이 없습니다'}
+                  {statType === 'living' ? '생활비 내역이 없습니다' : '고정비용 내역이 없습니다'}
                 </Text>
               </View>
             ) : (
@@ -310,14 +320,8 @@ export default function StatisticsScreen() {
                       </View>
                     </View>
                     <View style={styles.listItemRight}>
-                      <Text
-                        style={[
-                          styles.listItemAmount,
-                          statType === 'expense' ? styles.expenseText : styles.incomeText,
-                        ]}
-                      >
-                        {statType === 'expense' ? '-' : '+'}
-                        {formatCurrency(stat.amount)}
+                      <Text style={[styles.listItemAmount, styles.expenseText]}>
+                        -{formatCurrency(stat.amount)}
                       </Text>
                       <Text style={styles.listItemPercentage}>{stat.percentage.toFixed(1)}%</Text>
                     </View>
@@ -392,11 +396,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderRadius: borderRadius.sm,
   },
-  typeButtonActiveExpense: {
-    backgroundColor: colors.semantic.expense,
+  typeButtonActiveLiving: {
+    backgroundColor: colors.primary.main,
   },
-  typeButtonActiveIncome: {
-    backgroundColor: colors.semantic.income,
+  typeButtonActiveFixed: {
+    backgroundColor: colors.semantic.expense,
   },
   typeButtonText: {
     fontSize: typography.fontSize.md,
@@ -577,9 +581,6 @@ const styles = StyleSheet.create({
   },
   expenseText: {
     color: colors.semantic.expense,
-  },
-  incomeText: {
-    color: colors.semantic.income,
   },
   listItemPercentage: {
     fontSize: typography.fontSize.sm,

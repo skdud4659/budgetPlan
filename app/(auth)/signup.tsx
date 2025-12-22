@@ -55,7 +55,7 @@ export default function SignupScreen() {
     setIsLoading(true);
     try {
       await authService.signUp(email, password);
-      router.replace("/(tabs)/home");
+      router.replace("/(tabs)");
     } catch (error: any) {
       showAlert("회원가입 실패", error.message || "회원가입에 실패했습니다.");
     } finally {

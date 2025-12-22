@@ -17,10 +17,12 @@ import {
   shadows,
   assetTypeConfig,
 } from "../styles";
-import type { Asset, Transaction, FixedItem, AssetType } from "../types";
+import type { Asset, Transaction, FixedItem, AssetType, BudgetType } from "../types";
+import { useSettings } from "../contexts/SettingsContext";
 import { transactionService } from "../services/transactionService";
 import { fixedItemService } from "../services/fixedItemService";
 import AddTransactionSheet from "./AddTransactionSheet";
+import AddFixedItemSheet from "./AddFixedItemSheet";
 
 interface AssetDetailSheetProps {
   visible: boolean;
@@ -53,12 +55,17 @@ export default function AssetDetailSheet({
   onEdit,
   onDelete,
 }: AssetDetailSheetProps) {
+  const { jointBudgetEnabled } = useSettings();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [fixedItems, setFixedItems] = useState<FixedItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedMonth, setSelectedMonth] = useState(new Date());
   const [billingInfo, setBillingInfo] = useState<{ currentBilling: number; nextBilling: number } | null>(null);
   const [showAddTransaction, setShowAddTransaction] = useState(false);
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const [showFixedItemSheet, setShowFixedItemSheet] = useState(false);
+  const [editingFixedItem, setEditingFixedItem] = useState<FixedItem | null>(null);
+  const [budgetTypeFilter, setBudgetTypeFilter] = useState<'all' | 'personal' | 'joint'>('all');
 
   useEffect(() => {
     if (visible && asset) {
@@ -155,6 +162,12 @@ export default function AssetDetailSheet({
 
   // 정기지출 총액
   const totalFixedExpense = fixedItems.reduce((sum, f) => sum + f.amount, 0);
+
+  // 필터링된 거래내역
+  const filteredTransactions = transactions.filter((t) => {
+    if (budgetTypeFilter === 'all') return true;
+    return t.budgetType === budgetTypeFilter;
+  });
 
   return (
     <Modal
@@ -274,48 +287,6 @@ export default function AssetDetailSheet({
               />
             ) : (
               <>
-                {/* 정기지출 섹션 */}
-                <View style={styles.section}>
-                  <View style={styles.sectionHeader}>
-                    <Text style={styles.sectionTitle}>정기지출</Text>
-                    {fixedItems.length > 0 && (
-                      <Text style={styles.sectionTotal}>
-                        월 {formatCurrency(totalFixedExpense)}
-                      </Text>
-                    )}
-                  </View>
-
-                  {fixedItems.length > 0 ? (
-                    <View style={styles.listCard}>
-                      {fixedItems.map((item, index) => (
-                        <View
-                          key={item.id}
-                          style={[
-                            styles.listItem,
-                            index < fixedItems.length - 1 && styles.listItemBorder,
-                          ]}
-                        >
-                          <View style={styles.listItemContent}>
-                            <Text style={styles.listItemTitle}>{item.name}</Text>
-                            <Text style={styles.listItemSubtitle}>
-                              매월 {item.day}일
-                            </Text>
-                          </View>
-                          <Text style={styles.listItemAmount}>
-                            -{formatCurrency(item.amount)}
-                          </Text>
-                        </View>
-                      ))}
-                    </View>
-                  ) : (
-                    <View style={styles.emptySection}>
-                      <Text style={styles.emptyText}>
-                        등록된 정기지출이 없습니다
-                      </Text>
-                    </View>
-                  )}
-                </View>
-
                 {/* 거래 내역 섹션 */}
                 <View style={styles.section}>
                   <View style={styles.sectionHeader}>
@@ -355,13 +326,68 @@ export default function AssetDetailSheet({
                       </TouchableOpacity>
                     </View>
                   </View>
+
+                  {/* Budget Type Filter */}
+                  {jointBudgetEnabled && (
+                    <View style={styles.filterRow}>
+                      <TouchableOpacity
+                        style={[
+                          styles.filterButton,
+                          budgetTypeFilter === 'all' && styles.filterButtonActive,
+                        ]}
+                        onPress={() => setBudgetTypeFilter('all')}
+                      >
+                        <Text
+                          style={[
+                            styles.filterButtonText,
+                            budgetTypeFilter === 'all' && styles.filterButtonTextActive,
+                          ]}
+                        >
+                          전체
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[
+                          styles.filterButton,
+                          budgetTypeFilter === 'personal' && styles.filterButtonActive,
+                        ]}
+                        onPress={() => setBudgetTypeFilter('personal')}
+                      >
+                        <Text
+                          style={[
+                            styles.filterButtonText,
+                            budgetTypeFilter === 'personal' && styles.filterButtonTextActive,
+                          ]}
+                        >
+                          개인
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[
+                          styles.filterButton,
+                          budgetTypeFilter === 'joint' && styles.filterButtonActive,
+                        ]}
+                        onPress={() => setBudgetTypeFilter('joint')}
+                      >
+                        <Text
+                          style={[
+                            styles.filterButtonText,
+                            budgetTypeFilter === 'joint' && styles.filterButtonTextActive,
+                          ]}
+                        >
+                          공동
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+
                   <Text style={styles.transactionCount}>
-                    {transactions.length}건
+                    {filteredTransactions.length}건
                   </Text>
 
-                  {transactions.length > 0 ? (
+                  {filteredTransactions.length > 0 ? (
                     <View style={styles.listCard}>
-                      {transactions.map((transaction, index) => {
+                      {filteredTransactions.map((transaction, index) => {
                         const isInstallment = transaction.isInstallment;
                         const displayAmount =
                           isInstallment &&
@@ -374,29 +400,53 @@ export default function AssetDetailSheet({
                         const isOutgoing = transaction.assetId === asset.id;
 
                         return (
-                          <View
+                          <TouchableOpacity
                             key={transaction.id}
                             style={[
                               styles.listItem,
-                              index < transactions.length - 1 &&
+                              index < filteredTransactions.length - 1 &&
                                 styles.listItemBorder,
                             ]}
+                            activeOpacity={0.7}
+                            onPress={() => {
+                              // 카테고리 타입이 fixed인 경우 정기지출 시트 열기
+                              if (transaction.category?.type === 'fixed') {
+                                const matchedFixedItem = fixedItems.find(
+                                  (item) => item.name === transaction.title && item.amount === transaction.amount
+                                );
+                                if (matchedFixedItem) {
+                                  setEditingFixedItem(matchedFixedItem);
+                                  setShowFixedItemSheet(true);
+                                  return;
+                                }
+                              }
+                              // 일반 거래인 경우
+                              setEditingTransaction(transaction);
+                              setShowAddTransaction(true);
+                            }}
                           >
                             <View style={styles.listItemContent}>
                               <View style={styles.listItemTitleRow}>
-                                <Text style={styles.listItemTitle}>
+                                <Text style={styles.listItemTitle} numberOfLines={1}>
                                   {transaction.title}
                                 </Text>
-                                {isInstallment &&
-                                  transaction.currentTerm &&
-                                  transaction.totalTerm && (
-                                    <View style={styles.installmentBadge}>
-                                      <Text style={styles.installmentBadgeText}>
-                                        {transaction.currentTerm}/
-                                        {transaction.totalTerm}
-                                      </Text>
+                                <View style={styles.indicatorRow}>
+                                  {transaction.category?.type === 'fixed' && (
+                                    <View style={styles.fixedIndicator}>
+                                      <Ionicons name="repeat" size={12} color={colors.semantic.expense} />
                                     </View>
                                   )}
+                                  {isInstallment &&
+                                    transaction.currentTerm &&
+                                    transaction.totalTerm && (
+                                      <View style={styles.installmentBadge}>
+                                        <Text style={styles.installmentBadgeText}>
+                                          {transaction.currentTerm}/
+                                          {transaction.totalTerm}
+                                        </Text>
+                                      </View>
+                                    )}
+                                </View>
                               </View>
                               <Text style={styles.listItemSubtitle}>
                                 {formatDate(transaction.date)}
@@ -430,7 +480,7 @@ export default function AssetDetailSheet({
                                 : "-"}
                               {formatCurrency(displayAmount)}
                             </Text>
-                          </View>
+                          </TouchableOpacity>
                         );
                       })}
                     </View>
@@ -448,14 +498,43 @@ export default function AssetDetailSheet({
         </View>
       </View>
 
-      {/* 내역 추가 시트 */}
+      {/* 내역 추가/수정 시트 */}
       <AddTransactionSheet
         visible={showAddTransaction}
-        onClose={() => setShowAddTransaction(false)}
+        onClose={() => {
+          setShowAddTransaction(false);
+          setEditingTransaction(null);
+        }}
         onSuccess={() => {
           loadData(selectedMonth);
+          setEditingTransaction(null);
         }}
         defaultAssetId={asset?.id}
+        editTransaction={editingTransaction}
+      />
+
+      {/* 정기지출 수정 시트 */}
+      <AddFixedItemSheet
+        visible={showFixedItemSheet}
+        onClose={() => {
+          setShowFixedItemSheet(false);
+          setEditingFixedItem(null);
+        }}
+        onSubmit={async (data) => {
+          if (editingFixedItem) {
+            await fixedItemService.updateFixedItem(editingFixedItem.id, data);
+            loadData(selectedMonth);
+          }
+          setShowFixedItemSheet(false);
+          setEditingFixedItem(null);
+        }}
+        onDelete={editingFixedItem ? async () => {
+          await fixedItemService.deleteFixedItem(editingFixedItem.id);
+          loadData(selectedMonth);
+          setShowFixedItemSheet(false);
+          setEditingFixedItem(null);
+        } : undefined}
+        editItem={editingFixedItem}
       />
     </Modal>
   );
@@ -665,6 +744,32 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xs,
     marginBottom: spacing.sm,
   },
+  filterRow: {
+    flexDirection: 'row',
+    marginVertical: spacing.sm,
+    backgroundColor: colors.background.tertiary,
+    borderRadius: borderRadius.base,
+    padding: 2,
+  },
+  filterButton: {
+    flex: 1,
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+    borderRadius: borderRadius.sm,
+  },
+  filterButtonActive: {
+    backgroundColor: colors.background.secondary,
+    ...shadows.sm,
+  },
+  filterButtonText: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.medium,
+    color: colors.text.tertiary,
+  },
+  filterButtonTextActive: {
+    color: colors.primary.main,
+    fontWeight: typography.fontWeight.semiBold,
+  },
   listCard: {
     backgroundColor: colors.background.secondary,
     borderRadius: borderRadius.lg,
@@ -691,6 +796,22 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.base,
     fontWeight: typography.fontWeight.medium,
     color: colors.text.primary,
+    flexShrink: 1,
+  },
+  indicatorRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    marginLeft: spacing.sm,
+    flexShrink: 0,
+  },
+  fixedIndicator: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: colors.semantic.expense + "20",
+    alignItems: "center",
+    justifyContent: "center",
   },
   listItemSubtitle: {
     fontSize: typography.fontSize.sm,
