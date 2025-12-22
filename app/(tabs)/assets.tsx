@@ -396,6 +396,7 @@ export default function AssetsScreen() {
             handleDeleteAsset(selectedAsset);
           }
         }}
+        onTransactionChange={loadAssets}
       />
 
       {/* 자산 추가/수정 바텀시트 */}

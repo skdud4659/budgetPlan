@@ -203,39 +203,10 @@ export const fixedItemService = {
   },
 
   // 정기지출 삭제 (hard delete)
+  // 주의: 고정 지출을 삭제해도 이미 생성된 거래 내역은 유지됨
+  // 거래 내역은 독립적으로 관리되며 고정 지출과 분리되어 있음
   async deleteFixedItem(id: string): Promise<void> {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) throw new Error("로그인이 필요합니다.");
-
-    // 먼저 삭제할 정기지출 정보 조회
-    const { data: fixedItem } = await supabase
-      .from("fixed_items")
-      .select("name, amount")
-      .eq("id", id)
-      .single();
-
-    if (fixedItem) {
-      // 이번 달 해당 정기지출로 생성된 거래내역도 삭제
-      const today = new Date();
-      const currentYear = today.getFullYear();
-      const currentMonth = today.getMonth() + 1;
-      const monthStart = `${currentYear}-${String(currentMonth).padStart(2, "0")}-01`;
-      const monthEnd = `${currentYear}-${String(currentMonth).padStart(2, "0")}-31`;
-
-      await supabase
-        .from("transactions")
-        .delete()
-        .eq("user_id", user.id)
-        .eq("title", fixedItem.name)
-        .eq("amount", fixedItem.amount)
-        .eq("type", "expense")
-        .gte("date", monthStart)
-        .lte("date", monthEnd);
-    }
-
-    // 정기지출 삭제
+    // 정기지출 삭제 (거래내역은 유지)
     const { error } = await supabase.from("fixed_items").delete().eq("id", id);
 
     if (error) throw error;

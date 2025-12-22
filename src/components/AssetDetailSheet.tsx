@@ -17,12 +17,12 @@ import {
   shadows,
   assetTypeConfig,
 } from "../styles";
-import type { Asset, Transaction, FixedItem, AssetType, BudgetType } from "../types";
+import type { Asset, Transaction, AssetType } from "../types";
 import { useSettings } from "../contexts/SettingsContext";
 import { transactionService } from "../services/transactionService";
-import { fixedItemService } from "../services/fixedItemService";
+import { assetService } from "../services/assetService";
 import AddTransactionSheet from "./AddTransactionSheet";
-import AddFixedItemSheet from "./AddFixedItemSheet";
+import FixedTransactionSheet from "./FixedTransactionSheet";
 
 interface AssetDetailSheetProps {
   visible: boolean;
@@ -30,6 +30,7 @@ interface AssetDetailSheetProps {
   onClose: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onTransactionChange?: () => void;
 }
 
 function getAssetIcon(type: AssetType): keyof typeof Ionicons.glyphMap {
@@ -54,21 +55,23 @@ export default function AssetDetailSheet({
   onClose,
   onEdit,
   onDelete,
+  onTransactionChange,
 }: AssetDetailSheetProps) {
   const { jointBudgetEnabled } = useSettings();
+  const [currentAsset, setCurrentAsset] = useState<Asset | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [fixedItems, setFixedItems] = useState<FixedItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedMonth, setSelectedMonth] = useState(new Date());
   const [billingInfo, setBillingInfo] = useState<{ currentBilling: number; nextBilling: number } | null>(null);
   const [showAddTransaction, setShowAddTransaction] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
-  const [showFixedItemSheet, setShowFixedItemSheet] = useState(false);
-  const [editingFixedItem, setEditingFixedItem] = useState<FixedItem | null>(null);
+  const [showFixedTransaction, setShowFixedTransaction] = useState(false);
+  const [selectedFixedTransaction, setSelectedFixedTransaction] = useState<Transaction | null>(null);
   const [budgetTypeFilter, setBudgetTypeFilter] = useState<'all' | 'personal' | 'joint'>('all');
 
   useEffect(() => {
     if (visible && asset) {
+      setCurrentAsset(asset);
       const now = new Date();
       setSelectedMonth(now);
       loadData(now);
@@ -81,24 +84,27 @@ export default function AssetDetailSheet({
     }
   }, [selectedMonth]);
 
-  const loadData = async (month: Date) => {
+  const loadData = async (month: Date, reloadAsset: boolean = false) => {
     if (!asset) return;
 
     setIsLoading(true);
     try {
-      // 정기지출 로드
-      const allFixedItems = await fixedItemService.getFixedItems();
-      const assetFixedItems = allFixedItems.filter(
-        (f) => f.assetId === asset.id
-      );
-      setFixedItems(assetFixedItems);
+      // 자산 정보 다시 로드 (잔액 업데이트)
+      if (reloadAsset) {
+        const assets = await assetService.getAssets();
+        const updatedAsset = assets.find(a => a.id === asset.id);
+        if (updatedAsset) {
+          setCurrentAsset(updatedAsset);
+        }
+      }
 
       // 카드인 경우 결제 예정 금액 로드
-      if (asset.type === "card" && asset.settlementDate && asset.billingDate) {
+      const targetAsset = currentAsset || asset;
+      if (targetAsset.type === "card" && targetAsset.settlementDate && targetAsset.billingDate) {
         const billing = await transactionService.getCardBillingAmount(
-          asset.id,
-          asset.settlementDate,
-          asset.billingDate
+          targetAsset.id,
+          targetAsset.settlementDate,
+          targetAsset.billingDate
         );
         setBillingInfo(billing);
       } else {
@@ -157,11 +163,10 @@ export default function AssetDetailSheet({
 
   if (!asset) return null;
 
-  const isNegative = asset.balance < 0;
-  const config = assetTypeConfig[asset.type];
-
-  // 정기지출 총액
-  const totalFixedExpense = fixedItems.reduce((sum, f) => sum + f.amount, 0);
+  // 현재 표시할 자산 (업데이트된 잔액 반영)
+  const displayAsset = currentAsset || asset;
+  const isNegative = displayAsset.balance < 0;
+  const config = assetTypeConfig[displayAsset.type];
 
   // 필터링된 거래내역
   const filteredTransactions = transactions.filter((t) => {
@@ -230,13 +235,13 @@ export default function AssetDetailSheet({
                   ]}
                 >
                   <Ionicons
-                    name={getAssetIcon(asset.type)}
+                    name={getAssetIcon(displayAsset.type)}
                     size={24}
                     color={config.color}
                   />
                 </View>
                 <View style={styles.assetCardInfo}>
-                  <Text style={styles.assetName}>{asset.name}</Text>
+                  <Text style={styles.assetName}>{displayAsset.name}</Text>
                   <Text style={styles.assetType}>{config.label}</Text>
                 </View>
               </View>
@@ -247,19 +252,19 @@ export default function AssetDetailSheet({
                 ]}
               >
                 {isNegative ? "-" : ""}
-                {formatCurrency(asset.balance)}
+                {formatCurrency(displayAsset.balance)}
               </Text>
 
-              {asset.type === "card" && asset.billingDate && (
+              {displayAsset.type === "card" && displayAsset.billingDate && (
                 <Text style={styles.billingInfo}>
-                  {asset.settlementDate
-                    ? `정산 ${asset.settlementDate}일 / 결제 ${asset.billingDate}일`
-                    : `결제일 ${asset.billingDate}일`}
+                  {displayAsset.settlementDate
+                    ? `정산 ${displayAsset.settlementDate}일 / 결제 ${displayAsset.billingDate}일`
+                    : `결제일 ${displayAsset.billingDate}일`}
                 </Text>
               )}
 
               {/* 카드 결제 예정 금액 */}
-              {asset.type === "card" && billingInfo && (
+              {displayAsset.type === "card" && billingInfo && (
                 <View style={styles.billingAmountContainer}>
                   <View style={styles.billingAmountItem}>
                     <Text style={styles.billingAmountLabel}>이번 달 결제 예정</Text>
@@ -409,20 +414,14 @@ export default function AssetDetailSheet({
                             ]}
                             activeOpacity={0.7}
                             onPress={() => {
-                              // 카테고리 타입이 fixed인 경우 정기지출 시트 열기
+                              // 고정 지출 카테고리의 거래는 전용 시트에서 처리
                               if (transaction.category?.type === 'fixed') {
-                                const matchedFixedItem = fixedItems.find(
-                                  (item) => item.name === transaction.title && item.amount === transaction.amount
-                                );
-                                if (matchedFixedItem) {
-                                  setEditingFixedItem(matchedFixedItem);
-                                  setShowFixedItemSheet(true);
-                                  return;
-                                }
+                                setSelectedFixedTransaction(transaction);
+                                setShowFixedTransaction(true);
+                              } else {
+                                setEditingTransaction(transaction);
+                                setShowAddTransaction(true);
                               }
-                              // 일반 거래인 경우
-                              setEditingTransaction(transaction);
-                              setShowAddTransaction(true);
                             }}
                           >
                             <View style={styles.listItemContent}>
@@ -506,35 +505,27 @@ export default function AssetDetailSheet({
           setEditingTransaction(null);
         }}
         onSuccess={() => {
-          loadData(selectedMonth);
+          loadData(selectedMonth, true);
           setEditingTransaction(null);
+          onTransactionChange?.();
         }}
-        defaultAssetId={asset?.id}
+        defaultAssetId={currentAsset?.id || asset?.id}
         editTransaction={editingTransaction}
       />
 
-      {/* 정기지출 수정 시트 */}
-      <AddFixedItemSheet
-        visible={showFixedItemSheet}
+      {/* 고정 지출 거래 수정 시트 */}
+      <FixedTransactionSheet
+        visible={showFixedTransaction}
+        transaction={selectedFixedTransaction}
         onClose={() => {
-          setShowFixedItemSheet(false);
-          setEditingFixedItem(null);
+          setShowFixedTransaction(false);
+          setSelectedFixedTransaction(null);
         }}
-        onSubmit={async (data) => {
-          if (editingFixedItem) {
-            await fixedItemService.updateFixedItem(editingFixedItem.id, data);
-            loadData(selectedMonth);
-          }
-          setShowFixedItemSheet(false);
-          setEditingFixedItem(null);
+        onSuccess={() => {
+          loadData(selectedMonth, true);
+          setSelectedFixedTransaction(null);
+          onTransactionChange?.();
         }}
-        onDelete={editingFixedItem ? async () => {
-          await fixedItemService.deleteFixedItem(editingFixedItem.id);
-          loadData(selectedMonth);
-          setShowFixedItemSheet(false);
-          setEditingFixedItem(null);
-        } : undefined}
-        editItem={editingFixedItem}
       />
     </Modal>
   );

@@ -23,6 +23,7 @@ import type { Transaction, FixedItem, Category } from "../../src/types";
 import { transactionService } from "../../src/services/transactionService";
 import { fixedItemService } from "../../src/services/fixedItemService";
 import { useSettings } from "../../src/contexts/SettingsContext";
+import AddTransactionSheet from "../../src/components/AddTransactionSheet";
 
 export default function LivingScreen() {
   const {
@@ -43,6 +44,10 @@ export default function LivingScreen() {
   const [personalBudgetInput, setPersonalBudgetInput] = useState("");
   const [jointBudgetInput, setJointBudgetInput] = useState("");
   const [isSavingBudget, setIsSavingBudget] = useState(false);
+
+  // 거래 상세 시트
+  const [showTransactionSheet, setShowTransactionSheet] = useState(false);
+  const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
 
   // 데이터 로드
   const loadData = useCallback(async () => {
@@ -140,28 +145,22 @@ export default function LivingScreen() {
   // 고정비용 총액 (필터된)
   const totalFixedExpense = filteredFixedItems.reduce((sum, item) => sum + item.amount, 0);
 
-  // 생활비 예산 = 월예산 - 고정비용
+  // 생활비 예산 = 월예산 (고정비용은 이미 제외하고 설정한 금액)
   const getLivingBudget = () => {
     if (budgetTypeFilter === 'joint') {
-      const jointFixed = fixedItems
-        .filter(item => item.budgetType === 'joint')
-        .reduce((sum, item) => sum + item.amount, 0);
-      return (jointBudget || 0) - jointFixed;
+      return jointBudget || 0;
     } else if (budgetTypeFilter === 'personal') {
-      const personalFixed = fixedItems
-        .filter(item => item.budgetType === 'personal')
-        .reduce((sum, item) => sum + item.amount, 0);
-      return (personalBudget || 0) - personalFixed;
+      return personalBudget || 0;
     } else {
-      return (personalBudget || 0) + (jointBudget || 0) - totalFixedExpense;
+      return (personalBudget || 0) + (jointBudget || 0);
     }
   };
 
   const livingBudget = getLivingBudget();
 
-  // 생활비 지출 (고정비용 제외)
+  // 생활비 지출 (고정비용 제외, includeInLivingExpense가 true인 것만)
   const livingExpense = filteredTransactions
-    .filter(t => t.type === 'expense' && t.category?.type !== 'fixed')
+    .filter(t => t.type === 'expense' && t.category?.type !== 'fixed' && t.includeInLivingExpense !== false)
     .reduce((sum, t) => sum + t.amount, 0);
 
   // 남은 생활비
@@ -170,27 +169,46 @@ export default function LivingScreen() {
   // 사용률
   const usageRate = livingBudget > 0 ? (livingExpense / livingBudget) * 100 : 0;
 
-  // 카테고리별 지출 집계
-  const getCategoryExpenses = () => {
-    const categoryMap: Record<string, { category: Category | null; amount: number }> = {};
+  // 생활비 거래 내역 (고정비용 제외, includeInLivingExpense가 true인 것만)
+  const livingTransactions = filteredTransactions
+    .filter(t => t.type === 'expense' && t.category?.type !== 'fixed' && t.includeInLivingExpense !== false)
+    .sort((a, b) => b.date.localeCompare(a.date));
 
-    filteredTransactions
-      .filter(t => t.type === 'expense' && t.category?.type !== 'fixed')
-      .forEach(t => {
-        const categoryId = t.category?.id || 'uncategorized';
-        if (!categoryMap[categoryId]) {
-          categoryMap[categoryId] = {
-            category: t.category || null,
-            amount: 0,
-          };
-        }
-        categoryMap[categoryId].amount += t.amount;
+  // 날짜별 그룹핑
+  const groupTransactionsByDate = () => {
+    const groups: { date: string; transactions: Transaction[] }[] = [];
+    const dateMap: Record<string, Transaction[]> = {};
+
+    livingTransactions.forEach((t) => {
+      if (!dateMap[t.date]) {
+        dateMap[t.date] = [];
+      }
+      dateMap[t.date].push(t);
+    });
+
+    Object.keys(dateMap)
+      .sort((a, b) => b.localeCompare(a))
+      .forEach((date) => {
+        groups.push({ date, transactions: dateMap[date] });
       });
 
-    return Object.values(categoryMap).sort((a, b) => b.amount - a.amount);
+    return groups;
   };
 
-  const categoryExpenses = getCategoryExpenses();
+  const groupedTransactions = groupTransactionsByDate();
+
+  // 거래 클릭 핸들러
+  const handleTransactionPress = (transaction: Transaction) => {
+    setSelectedTransaction(transaction);
+    setShowTransactionSheet(true);
+  };
+
+  // 날짜 포맷
+  const formatDateHeader = (dateStr: string) => {
+    const date = new Date(dateStr);
+    const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
+    return `${date.getMonth() + 1}월 ${date.getDate()}일 (${weekdays[date.getDay()]})`;
+  };
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
@@ -359,67 +377,68 @@ export default function LivingScreen() {
           )}
         </View>
 
-        {/* 카테고리별 지출 */}
+        {/* 지출 내역 */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>카테고리별 지출</Text>
+          <Text style={styles.sectionTitle}>지출 내역</Text>
 
           {isLoading ? (
             <ActivityIndicator size="small" color={colors.primary.main} />
-          ) : categoryExpenses.length > 0 ? (
-            <View style={styles.categoryList}>
-              {categoryExpenses.map((item, index) => {
-                const categoryName = item.category?.name || '미분류';
-                const categoryColor = item.category?.color || colors.text.tertiary;
-                const categoryIcon = item.category?.iconName || 'help-circle';
-                const percentage = livingExpense > 0
-                  ? (item.amount / livingExpense) * 100
-                  : 0;
+          ) : groupedTransactions.length > 0 ? (
+            <View style={styles.transactionList}>
+              {groupedTransactions.map((group) => (
+                <View key={group.date}>
+                  <View style={styles.dateHeader}>
+                    <Text style={styles.dateHeaderText}>
+                      {formatDateHeader(group.date)}
+                    </Text>
+                    <Text style={styles.dateHeaderAmount}>
+                      -{formatCurrency(
+                        group.transactions.reduce((sum, t) => sum + t.amount, 0)
+                      )}
+                    </Text>
+                  </View>
+                  {group.transactions.map((transaction, index) => {
+                    const categoryColor = transaction.category?.color || colors.text.tertiary;
+                    const categoryIcon = transaction.category?.iconName || 'help-circle';
 
-                return (
-                  <View
-                    key={item.category?.id || 'uncategorized'}
-                    style={[
-                      styles.categoryItem,
-                      index < categoryExpenses.length - 1 && styles.categoryItemBorder,
-                    ]}
-                  >
-                    <View
-                      style={[
-                        styles.categoryIcon,
-                        { backgroundColor: categoryColor + '20' },
-                      ]}
-                    >
-                      <Ionicons
-                        name={categoryIcon as keyof typeof Ionicons.glyphMap}
-                        size={20}
-                        color={categoryColor}
-                      />
-                    </View>
-                    <View style={styles.categoryContent}>
-                      <View style={styles.categoryHeader}>
-                        <Text style={styles.categoryName}>{categoryName}</Text>
-                        <Text style={styles.categoryAmount}>
-                          {formatCurrency(item.amount)}
-                        </Text>
-                      </View>
-                      <View style={styles.categoryProgressBar}>
+                    return (
+                      <TouchableOpacity
+                        key={transaction.id}
+                        style={[
+                          styles.transactionItem,
+                          index < group.transactions.length - 1 && styles.transactionItemBorder,
+                        ]}
+                        activeOpacity={0.7}
+                        onPress={() => handleTransactionPress(transaction)}
+                      >
                         <View
                           style={[
-                            styles.categoryProgressFill,
-                            {
-                              width: `${percentage}%`,
-                              backgroundColor: categoryColor,
-                            },
+                            styles.transactionIcon,
+                            { backgroundColor: categoryColor + '20' },
                           ]}
-                        />
-                      </View>
-                      <Text style={styles.categoryPercentage}>
-                        {percentage.toFixed(1)}%
-                      </Text>
-                    </View>
-                  </View>
-                );
-              })}
+                        >
+                          <Ionicons
+                            name={categoryIcon as keyof typeof Ionicons.glyphMap}
+                            size={18}
+                            color={categoryColor}
+                          />
+                        </View>
+                        <View style={styles.transactionContent}>
+                          <Text style={styles.transactionTitle} numberOfLines={1}>
+                            {transaction.title}
+                          </Text>
+                          <Text style={styles.transactionCategory}>
+                            {transaction.category?.name || '미분류'}
+                          </Text>
+                        </View>
+                        <Text style={styles.transactionAmount}>
+                          -{formatCurrency(transaction.amount)}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              ))}
             </View>
           ) : (
             <View style={styles.emptyContainer}>
@@ -528,6 +547,21 @@ export default function LivingScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* 거래 수정 시트 */}
+      <AddTransactionSheet
+        visible={showTransactionSheet}
+        onClose={() => {
+          setShowTransactionSheet(false);
+          setSelectedTransaction(null);
+        }}
+        onSuccess={() => {
+          loadData();
+          setSelectedTransaction(null);
+        }}
+        editTransaction={selectedTransaction}
+      />
+
     </SafeAreaView>
   );
 }
@@ -709,62 +743,65 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.sm,
     color: colors.text.tertiary,
   },
-  categoryList: {
+  transactionList: {
     backgroundColor: colors.background.secondary,
     borderRadius: borderRadius.xl,
+    padding: spacing.sm,
     ...shadows.sm,
   },
-  categoryItem: {
+  dateHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  dateHeaderText: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.medium,
+    color: colors.text.secondary,
+  },
+  dateHeaderAmount: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.medium,
+    color: colors.semantic.expense,
+  },
+  transactionItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: spacing.base,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.sm,
   },
-  categoryItemBorder: {
+  transactionItemBorder: {
     borderBottomWidth: 1,
     borderBottomColor: colors.border.light,
   },
-  categoryIcon: {
-    width: 40,
-    height: 40,
+  transactionIcon: {
+    width: 36,
+    height: 36,
     borderRadius: borderRadius.base,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: spacing.md,
   },
-  categoryContent: {
+  transactionContent: {
     flex: 1,
   },
-  categoryHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.xs,
-  },
-  categoryName: {
+  transactionTitle: {
     fontSize: typography.fontSize.base,
     fontWeight: typography.fontWeight.medium,
     color: colors.text.primary,
   },
-  categoryAmount: {
+  transactionCategory: {
+    fontSize: typography.fontSize.sm,
+    color: colors.text.tertiary,
+    marginTop: 2,
+  },
+  transactionAmount: {
     fontSize: typography.fontSize.base,
     fontWeight: typography.fontWeight.semiBold,
-    color: colors.text.primary,
-  },
-  categoryProgressBar: {
-    height: 6,
-    backgroundColor: colors.border.light,
-    borderRadius: borderRadius.sm,
-    overflow: 'hidden',
-  },
-  categoryProgressFill: {
-    height: '100%',
-    borderRadius: borderRadius.sm,
-  },
-  categoryPercentage: {
-    fontSize: typography.fontSize.xs,
-    color: colors.text.tertiary,
-    marginTop: spacing.xs,
-    textAlign: 'right',
+    color: colors.semantic.expense,
   },
   emptyContainer: {
     alignItems: "center",

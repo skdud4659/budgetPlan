@@ -16,7 +16,7 @@ import { transactionService } from '../../src/services/transactionService';
 import { fixedItemService } from '../../src/services/fixedItemService';
 import { useSettings } from '../../src/contexts/SettingsContext';
 import AddTransactionSheet from '../../src/components/AddTransactionSheet';
-import AddFixedItemSheet from '../../src/components/AddFixedItemSheet';
+import FixedTransactionSheet from '../../src/components/FixedTransactionSheet';
 
 const WEEKDAYS = ['일요일', '월요일', '화요일', '수요일', '목요일', '금요일', '토요일'];
 
@@ -30,8 +30,8 @@ export default function HomeScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [showAddSheet, setShowAddSheet] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
-  const [showFixedItemSheet, setShowFixedItemSheet] = useState(false);
-  const [editingFixedItem, setEditingFixedItem] = useState<FixedItem | null>(null);
+  const [showFixedTransaction, setShowFixedTransaction] = useState(false);
+  const [selectedFixedTransaction, setSelectedFixedTransaction] = useState<Transaction | null>(null);
   const [budgetTypeFilter, setBudgetTypeFilter] = useState<'all' | 'personal' | 'joint'>('all');
 
   // 고정비용 총액 계산
@@ -90,18 +90,14 @@ export default function HomeScreen() {
   };
 
   const handleTransactionPress = (transaction: Transaction) => {
+    // 고정 지출 카테고리의 거래는 전용 시트에서 처리
     if (transaction.category?.type === 'fixed') {
-      const matchedFixedItem = fixedItems.find(
-        (item) => item.name === transaction.title && item.amount === transaction.amount
-      );
-      if (matchedFixedItem) {
-        setEditingFixedItem(matchedFixedItem);
-        setShowFixedItemSheet(true);
-        return;
-      }
+      setSelectedFixedTransaction(transaction);
+      setShowFixedTransaction(true);
+    } else {
+      setEditingTransaction(transaction);
+      setShowAddSheet(true);
     }
-    setEditingTransaction(transaction);
-    setShowAddSheet(true);
   };
 
   const formatMonthYear = (date: Date) => {
@@ -129,9 +125,9 @@ export default function HomeScreen() {
     .filter(t => t.type === 'income')
     .reduce((sum, t) => sum + t.amount, 0);
 
-  // 생활비 지출 (고정비용 제외)
+  // 생활비 지출 (고정비용 제외, includeInLivingExpense가 true인 것만)
   const livingExpense = filteredTransactions
-    .filter(t => t.type === 'expense' && t.category?.type !== 'fixed')
+    .filter(t => t.type === 'expense' && t.category?.type !== 'fixed' && t.includeInLivingExpense !== false)
     .reduce((sum, t) => sum + t.amount, 0);
 
   // 고정비용 지출
@@ -145,8 +141,8 @@ export default function HomeScreen() {
   // 이번 달 잔액
   const monthlyBalance = monthlyIncome - totalExpense;
 
-  // 생활비 예산 (월예산 - 고정비용)
-  const livingBudget = (personalBudget || 0) - totalFixedExpense;
+  // 생활비 예산 (고정비용은 이미 제외하고 설정한 금액)
+  const livingBudget = personalBudget || 0;
 
   // 남은 생활비
   const remainingLivingBudget = livingBudget - livingExpense;
@@ -429,28 +425,18 @@ export default function HomeScreen() {
         editTransaction={editingTransaction}
       />
 
-      {/* Edit Fixed Item Sheet */}
-      <AddFixedItemSheet
-        visible={showFixedItemSheet}
+      {/* 고정 지출 거래 수정 시트 */}
+      <FixedTransactionSheet
+        visible={showFixedTransaction}
+        transaction={selectedFixedTransaction}
         onClose={() => {
-          setShowFixedItemSheet(false);
-          setEditingFixedItem(null);
+          setShowFixedTransaction(false);
+          setSelectedFixedTransaction(null);
         }}
-        onSubmit={async (data) => {
-          if (editingFixedItem) {
-            await fixedItemService.updateFixedItem(editingFixedItem.id, data);
-            loadData();
-          }
-          setShowFixedItemSheet(false);
-          setEditingFixedItem(null);
-        }}
-        onDelete={editingFixedItem ? async () => {
-          await fixedItemService.deleteFixedItem(editingFixedItem.id);
+        onSuccess={() => {
           loadData();
-          setShowFixedItemSheet(false);
-          setEditingFixedItem(null);
-        } : undefined}
-        editItem={editingFixedItem}
+          setSelectedFixedTransaction(null);
+        }}
       />
     </SafeAreaView>
   );

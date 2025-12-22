@@ -1253,34 +1253,37 @@ export default function AddTransactionSheet({
                     </Text>
                   </View>
 
-                  {/* 생활비에 포함 여부 */}
-                  <View style={styles.switchGroup}>
-                    <View style={styles.switchLeft}>
-                      <Text style={styles.switchLabel}>가용 예산에 포함</Text>
-                      <Text style={styles.switchDescription}>
-                        활성화하면 홈 화면의 지출에 포함됩니다
-                      </Text>
-                    </View>
-                    <Switch
-                      value={formData.includeInLivingExpense}
-                      onValueChange={(value) =>
-                        setFormData({
-                          ...formData,
-                          includeInLivingExpense: value,
-                        })
-                      }
-                      trackColor={{
-                        false: colors.border.medium,
-                        true: colors.primary.light,
-                      }}
-                      thumbColor={
-                        formData.includeInLivingExpense
-                          ? colors.primary.main
-                          : colors.background.secondary
-                      }
-                    />
-                  </View>
                 </>
+              )}
+
+              {/* 생활비에 포함 여부 - 지출일 때만 표시 */}
+              {formData.type === "expense" && (
+                <View style={styles.switchGroup}>
+                  <View style={styles.switchLeft}>
+                    <Text style={styles.switchLabel}>생활비 예산에 포함</Text>
+                    <Text style={styles.switchDescription}>
+                      비활성화하면 생활비 지출에서 제외됩니다
+                    </Text>
+                  </View>
+                  <Switch
+                    value={formData.includeInLivingExpense}
+                    onValueChange={(value) =>
+                      setFormData({
+                        ...formData,
+                        includeInLivingExpense: value,
+                      })
+                    }
+                    trackColor={{
+                      false: colors.border.medium,
+                      true: colors.primary.light,
+                    }}
+                    thumbColor={
+                      formData.includeInLivingExpense
+                        ? colors.primary.main
+                        : colors.background.secondary
+                    }
+                  />
+                </View>
               )}
 
               {/* Note Input */}
