@@ -57,7 +57,7 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="assets"
+        name="wallet"
         options={{
           title: '자산',
           tabBarIcon: ({ focused, color }) => (

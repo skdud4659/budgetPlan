@@ -15,6 +15,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
+import DraggableFlatList, { RenderItemParams, ScaleDecorator } from 'react-native-draggable-flatlist';
 import {
   colors,
   typography,
@@ -79,6 +80,7 @@ export default function CategoriesScreen() {
   const [selectedType, setSelectedType] = useState<CategoryType>("expense");
   const [showAddModal, setShowAddModal] = useState(false);
   const [editCategory, setEditCategory] = useState<Category | null>(null);
+  const [isEditMode, setIsEditMode] = useState(false);
 
   // 폼 상태
   const [formName, setFormName] = useState("");
@@ -176,6 +178,21 @@ export default function CategoriesScreen() {
     setDeleteTarget(category);
   };
 
+  // 드래그앤드롭 순서 변경
+  const handleDragEnd = async ({ data }: { data: Category[] }) => {
+    // 현재 타입의 카테고리만 업데이트
+    const otherCategories = categories.filter(c => c.type !== selectedType);
+    const newCategories = [...otherCategories, ...data];
+    setCategories(newCategories);
+
+    // 서버에 순서 저장
+    try {
+      await categoryService.updateCategoryOrder(data.map(c => c.id));
+    } catch (error) {
+      console.log("Error updating category order:", error);
+    }
+  };
+
   const confirmDelete = async () => {
     if (!deleteTarget) return;
     try {
@@ -199,9 +216,28 @@ export default function CategoriesScreen() {
           <Ionicons name="arrow-back" size={24} color={colors.text.primary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>카테고리 관리</Text>
-        <TouchableOpacity onPress={handleOpenAdd} style={styles.addButton}>
-          <Ionicons name="add" size={24} color={colors.primary.main} />
-        </TouchableOpacity>
+        <View style={styles.headerRight}>
+          {isEditMode ? (
+            <TouchableOpacity
+              style={styles.editDoneButton}
+              onPress={() => setIsEditMode(false)}
+            >
+              <Text style={styles.editDoneText}>완료</Text>
+            </TouchableOpacity>
+          ) : (
+            <>
+              <TouchableOpacity
+                style={styles.editButton}
+                onPress={() => setIsEditMode(true)}
+              >
+                <Ionicons name="reorder-three" size={24} color={colors.text.secondary} />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={handleOpenAdd} style={styles.addButton}>
+                <Ionicons name="add" size={24} color={colors.primary.main} />
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
       </View>
 
       {/* Type Selector */}
@@ -260,6 +296,55 @@ export default function CategoriesScreen() {
       {isLoading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.primary.main} />
+        </View>
+      ) : isEditMode ? (
+        /* 편집 모드: 드래그앤드롭으로 순서 변경 */
+        <View style={styles.editModeContainer}>
+          <View style={styles.editModeHeader}>
+            <Text style={styles.editModeTitle}>카테고리 순서 변경</Text>
+            <Text style={styles.editModeSubtitle}>길게 눌러서 드래그하세요</Text>
+          </View>
+          <DraggableFlatList
+            data={filteredCategories}
+            keyExtractor={(item) => item.id}
+            onDragEnd={handleDragEnd}
+            renderItem={({ item, drag, isActive }: RenderItemParams<Category>) => (
+              <ScaleDecorator>
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  onLongPress={drag}
+                  disabled={isActive}
+                  style={[
+                    styles.draggableItem,
+                    isActive && styles.draggableItemActive,
+                  ]}
+                >
+                  <View style={styles.dragHandle}>
+                    <Ionicons name="menu" size={20} color={colors.text.tertiary} />
+                  </View>
+                  <View
+                    style={[
+                      styles.categoryIcon,
+                      { backgroundColor: item.color + "30" },
+                    ]}
+                  >
+                    <Ionicons
+                      name={item.iconName as keyof typeof Ionicons.glyphMap}
+                      size={20}
+                      color={item.color}
+                    />
+                  </View>
+                  <Text style={styles.categoryName}>{item.name}</Text>
+                  {item.isDefault && (
+                    <View style={styles.defaultBadge}>
+                      <Text style={styles.defaultBadgeText}>기본</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              </ScaleDecorator>
+            )}
+            contentContainerStyle={styles.draggableListContent}
+          />
         </View>
       ) : (
         <ScrollView
@@ -517,6 +602,63 @@ const styles = StyleSheet.create({
   },
   addButton: {
     padding: spacing.xs,
+  },
+  headerRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  editButton: {
+    padding: spacing.xs,
+  },
+  editDoneButton: {
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+  },
+  editDoneText: {
+    fontSize: typography.fontSize.base,
+    fontWeight: typography.fontWeight.semiBold,
+    color: colors.primary.main,
+  },
+  editModeContainer: {
+    flex: 1,
+  },
+  editModeHeader: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    backgroundColor: colors.background.tertiary,
+  },
+  editModeTitle: {
+    fontSize: typography.fontSize.base,
+    fontWeight: typography.fontWeight.semiBold,
+    color: colors.text.primary,
+  },
+  editModeSubtitle: {
+    fontSize: typography.fontSize.sm,
+    color: colors.text.tertiary,
+    marginTop: 2,
+  },
+  draggableItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.background.secondary,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.base,
+    marginHorizontal: spacing.lg,
+    marginVertical: spacing.xs,
+    borderRadius: borderRadius.lg,
+    ...shadows.sm,
+  },
+  draggableItemActive: {
+    backgroundColor: colors.primary.light + "20",
+    transform: [{ scale: 1.02 }],
+  },
+  dragHandle: {
+    marginRight: spacing.md,
+  },
+  draggableListContent: {
+    paddingVertical: spacing.sm,
+    paddingBottom: spacing["3xl"],
   },
   typeSelector: {
     flexDirection: "row",

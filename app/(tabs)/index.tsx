@@ -6,6 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -34,26 +35,49 @@ export default function HomeScreen() {
   const [selectedFixedTransaction, setSelectedFixedTransaction] = useState<Transaction | null>(null);
   const [budgetTypeFilter, setBudgetTypeFilter] = useState<'all' | 'personal' | 'joint'>('all');
 
-  // 고정비용 총액 계산
-  const totalFixedExpense = fixedItems.reduce((sum, item) => sum + item.amount, 0);
+  // 고정비용 총액 계산 (거래 내역 기준 - 수정된 금액 반영)
+  // fixedItems 기반 기본값과 실제 거래 내역 기반 금액 중 거래 내역 우선
+  const totalFixedExpenseFromTransactions = transactions
+    .filter(t => t.type === 'expense' && t.category?.type === 'fixed')
+    .reduce((sum, t) => sum + t.amount, 0);
+  // 거래 내역이 있으면 거래 내역 기준, 없으면 fixedItems 기준
+  const totalFixedExpense = totalFixedExpenseFromTransactions > 0
+    ? totalFixedExpenseFromTransactions
+    : fixedItems.reduce((sum, item) => sum + item.amount, 0);
 
-  // 정기지출 자동 생성
-  const generateFixedTransactionsIfNeeded = useCallback(async (fixedData: FixedItem[]) => {
+  // 정기지출 및 할부 자동 생성
+  const generateAutoTransactionsIfNeeded = useCallback(async (fixedData: FixedItem[]) => {
     try {
-      const shouldGenerate = await transactionService.shouldGenerateFixedTransactions(monthStartDay);
-      if (shouldGenerate && fixedData.length > 0) {
+      let needReload = false;
+
+      // 정기지출 자동 생성
+      const shouldGenerateFixed = await transactionService.shouldGenerateFixedTransactions(monthStartDay);
+      if (shouldGenerateFixed && fixedData.length > 0) {
         const result = await transactionService.generateFixedTransactions(fixedData, monthStartDay);
         if (result.generated > 0) {
           console.log(`정기지출 ${result.generated}건 자동 생성 완료`);
-          const newTransactions = await transactionService.getTransactions(
-            currentMonth.getFullYear(),
-            currentMonth.getMonth() + 1
-          );
-          setTransactions(newTransactions);
+          needReload = true;
         }
       }
+
+      // 할부 월별 거래 자동 생성
+      const installmentResult = await transactionService.generateInstallmentTransactions(monthStartDay);
+      if (installmentResult.generated > 0) {
+        console.log(`할부 ${installmentResult.generated}건 자동 생성 완료`);
+        needReload = true;
+      }
+
+      // 새로운 거래가 생성되었으면 다시 로드
+      if (needReload) {
+        const newTransactions = await transactionService.getTransactionsWithInstallmentsByStartDay(
+          currentMonth.getFullYear(),
+          currentMonth.getMonth() + 1,
+          monthStartDay
+        );
+        setTransactions(newTransactions);
+      }
     } catch (error) {
-      console.error('정기지출 자동 생성 실패:', error);
+      console.error('자동 거래 생성 실패:', error);
     }
   }, [monthStartDay, currentMonth]);
 
@@ -62,22 +86,23 @@ export default function HomeScreen() {
     try {
       setIsLoading(true);
       const [transactionData, fixedData] = await Promise.all([
-        transactionService.getTransactions(
+        transactionService.getTransactionsWithInstallmentsByStartDay(
           currentMonth.getFullYear(),
-          currentMonth.getMonth() + 1
+          currentMonth.getMonth() + 1,
+          monthStartDay
         ),
         fixedItemService.getFixedItems(),
       ]);
       setTransactions(transactionData);
       setFixedItems(fixedData);
 
-      generateFixedTransactionsIfNeeded(fixedData);
+      generateAutoTransactionsIfNeeded(fixedData);
     } catch (error) {
       console.error('데이터 로드 실패:', error);
     } finally {
       setIsLoading(false);
     }
-  }, [currentMonth, generateFixedTransactionsIfNeeded]);
+  }, [currentMonth, monthStartDay, generateAutoTransactionsIfNeeded]);
 
   useFocusEffect(
     useCallback(() => {
@@ -95,6 +120,8 @@ export default function HomeScreen() {
       setSelectedFixedTransaction(transaction);
       setShowFixedTransaction(true);
     } else {
+      // 일반 거래 및 할부 거래 모두 수정 시트 열기
+      // (할부 거래는 시트에서 수정 안내 메시지 표시)
       setEditingTransaction(transaction);
       setShowAddSheet(true);
     }
@@ -141,14 +168,15 @@ export default function HomeScreen() {
   // 이번 달 잔액
   const monthlyBalance = monthlyIncome - totalExpense;
 
-  // 생활비 예산 (고정비용은 이미 제외하고 설정한 금액)
-  const livingBudget = personalBudget || 0;
+  // 전체 생활비 예산 (개인 + 공동)
+  const { jointBudget } = useSettings();
+  const totalLivingBudget = (personalBudget || 0) + (jointBudgetEnabled ? (jointBudget || 0) : 0);
 
   // 남은 생활비
-  const remainingLivingBudget = livingBudget - livingExpense;
+  const remainingLivingBudget = totalLivingBudget - livingExpense;
 
   // 생활비 사용률
-  const livingExpenseRate = livingBudget > 0 ? (livingExpense / livingBudget) * 100 : 0;
+  const livingExpenseRate = totalLivingBudget > 0 ? (livingExpense / totalLivingBudget) * 100 : 0;
 
   // 날짜별 그룹핑
   const groupTransactionsByDate = () => {
@@ -225,7 +253,7 @@ export default function HomeScreen() {
             <Text style={styles.summaryValueSub}>-{formatCurrency(fixedExpense)}</Text>
           </View>
           <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabelSub}>생활비 지출</Text>
+            <Text style={styles.summaryLabelSub}>전체 생활비 지출</Text>
             <Text style={styles.summaryValueSub}>-{formatCurrency(livingExpense)}</Text>
           </View>
 
@@ -252,11 +280,11 @@ export default function HomeScreen() {
           </View>
 
           <View style={styles.livingRow}>
-            <Text style={styles.livingLabel}>예산</Text>
-            <Text style={styles.livingValue}>{formatCurrency(livingBudget)}</Text>
+            <Text style={styles.livingLabel}>전체 예산</Text>
+            <Text style={styles.livingValue}>{formatCurrency(totalLivingBudget)}</Text>
           </View>
           <View style={styles.livingRow}>
-            <Text style={styles.livingLabel}>사용</Text>
+            <Text style={styles.livingLabel}>전체 생활비 지출</Text>
             <Text style={styles.livingValue}>{formatCurrency(livingExpense)}</Text>
           </View>
           <View style={styles.livingRow}>
@@ -297,9 +325,11 @@ export default function HomeScreen() {
           </View>
           <View style={styles.fixedRow}>
             <Text style={styles.fixedLabel}>이번 달</Text>
-            <Text style={styles.fixedValue}>{formatCurrency(totalFixedExpense)}</Text>
+            <Text style={styles.fixedValue}>{formatCurrency(fixedExpense)}</Text>
           </View>
-          <Text style={styles.fixedCount}>{fixedItems.length}건</Text>
+          <Text style={styles.fixedCount}>
+            {filteredTransactions.filter(t => t.type === 'expense' && t.category?.type === 'fixed').length}건
+          </Text>
         </View>
 
         {/* Budget Type Filter */}
@@ -461,29 +491,55 @@ function TransactionItem({
   const categoryColor = transaction.category?.color || colors.text.tertiary;
   const categoryIcon = transaction.category?.iconName || 'help-circle';
   const isTransfer = transaction.type === 'transfer';
+  const isInstallment = transaction.isInstallment;
+  const isExcludedFromBudget = transaction.type === 'expense' &&
+    transaction.category?.type !== 'fixed' &&
+    transaction.includeInLivingExpense === false;
+
+  // 월별 할부 거래는 이미 월별 금액이 저장되어 있음
+  const displayAmount = transaction.amount;
 
   return (
     <TouchableOpacity
-      style={[styles.transactionItem, !isLast && styles.transactionItemBorder]}
+      style={[
+        styles.transactionItem,
+        !isLast && styles.transactionItemBorder,
+        isExcludedFromBudget && styles.excludedTransaction,
+      ]}
       activeOpacity={0.7}
       onPress={onPress}
     >
       <View
         style={[
           styles.transactionIcon,
-          { backgroundColor: categoryColor + '20' },
+          { backgroundColor: categoryColor + (isExcludedFromBudget ? '10' : '20') },
         ]}
       >
         <Ionicons
           name={isTransfer ? 'swap-horizontal' : categoryIcon as keyof typeof Ionicons.glyphMap}
           size={20}
-          color={isTransfer ? colors.semantic.transfer : categoryColor}
+          color={isTransfer ? colors.semantic.transfer : (isExcludedFromBudget ? colors.text.tertiary : categoryColor)}
         />
       </View>
       <View style={styles.transactionContent}>
         <View style={styles.transactionTop}>
-          <Text style={styles.transactionTitle} numberOfLines={1}>{transaction.title}</Text>
+          <Text style={[
+            styles.transactionTitle,
+            isExcludedFromBudget && styles.excludedText,
+          ]} numberOfLines={1}>{transaction.title}</Text>
           <View style={styles.badgeRow}>
+            {isExcludedFromBudget && (
+              <View style={styles.excludedBadge}>
+                <Text style={styles.excludedBadgeText}>예산 외</Text>
+              </View>
+            )}
+            {isInstallment && transaction.currentTerm && transaction.totalTerm && (
+              <View style={styles.installmentBadge}>
+                <Text style={styles.installmentBadgeText}>
+                  {transaction.currentTerm}/{transaction.totalTerm}
+                </Text>
+              </View>
+            )}
             {transaction.category?.type === 'fixed' && (
               <View style={styles.fixedIndicator}>
                 <Ionicons name="repeat" size={12} color={colors.semantic.expense} />
@@ -496,22 +552,25 @@ function TransactionItem({
             )}
           </View>
         </View>
-        <Text style={styles.transactionCategory}>
+        <Text style={[
+          styles.transactionCategory,
+          isExcludedFromBudget && styles.excludedSubText,
+        ]}>
           {isTransfer && transaction.asset && transaction.toAsset
             ? `${transaction.asset.name} → ${transaction.toAsset.name}`
-            : categoryName}
+            : `${categoryName}${transaction.asset ? ` · ${transaction.asset.name}` : ''}`}
         </Text>
       </View>
       <Text
         style={[
           styles.transactionAmount,
           transaction.type === 'income' && styles.incomeText,
-          transaction.type === 'expense' && styles.expenseText,
+          transaction.type === 'expense' && (isExcludedFromBudget ? styles.excludedAmountText : styles.expenseText),
           transaction.type === 'transfer' && styles.transferText,
         ]}
       >
         {transaction.type === 'income' ? '+' : transaction.type === 'expense' ? '-' : ''}
-        {formatCurrency(transaction.amount)}
+        {formatCurrency(displayAmount)}
       </Text>
     </TouchableOpacity>
   );
@@ -829,6 +888,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  installmentBadge: {
+    backgroundColor: colors.primary.light + '30',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: borderRadius.sm,
+  },
+  installmentBadgeText: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.medium,
+    color: colors.primary.main,
+  },
   transactionCategory: {
     fontSize: typography.fontSize.sm,
     color: colors.text.tertiary,
@@ -847,6 +917,30 @@ const styles = StyleSheet.create({
   },
   transferText: {
     color: colors.semantic.transfer,
+  },
+  // 예산 미포함 스타일
+  excludedTransaction: {
+    opacity: 0.7,
+  },
+  excludedText: {
+    color: colors.text.tertiary,
+  },
+  excludedSubText: {
+    color: colors.text.tertiary,
+  },
+  excludedAmountText: {
+    color: colors.text.tertiary,
+  },
+  excludedBadge: {
+    backgroundColor: colors.text.tertiary + '20',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: borderRadius.sm,
+  },
+  excludedBadgeText: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.medium,
+    color: colors.text.tertiary,
   },
   emptyContainer: {
     alignItems: 'center',

@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors, typography, spacing, borderRadius, shadows } from '../src/styles';
 import { transactionService } from '../src/services/transactionService';
 import { useSettings } from '../src/contexts/SettingsContext';
+import CategoryTransactionSheet from '../src/components/CategoryTransactionSheet';
 import type { Transaction, Category } from '../src/types';
 
 type StatType = 'living' | 'fixed';
@@ -31,6 +32,9 @@ export default function StatisticsScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [categoryStats, setCategoryStats] = useState<CategoryStat[]>([]);
   const [totalAmount, setTotalAmount] = useState(0);
+  const [allTransactions, setAllTransactions] = useState<Transaction[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
+  const [showCategorySheet, setShowCategorySheet] = useState(false);
 
   const loadData = useCallback(async () => {
     setIsLoading(true);
@@ -44,6 +48,7 @@ export default function StatisticsScreen() {
         monthStartDay || 1
       );
 
+      setAllTransactions(transactions);
       calculateStats(transactions, statType);
     } catch (error) {
       console.error('Failed to load statistics:', error);
@@ -127,8 +132,35 @@ export default function StatisticsScreen() {
     return amount.toLocaleString('ko-KR') + '원';
   };
 
-  // 간단한 도넛 차트 렌더링 (SVG 없이 구현)
-  const renderDonutChart = () => {
+  // 카테고리 클릭 핸들러
+  const handleCategoryPress = (category: Category | null) => {
+    setSelectedCategory(category);
+    setShowCategorySheet(true);
+  };
+
+  // 선택된 카테고리의 거래 내역 필터링
+  const getFilteredTransactions = (): Transaction[] => {
+    return allTransactions.filter(t => {
+      if (t.type !== 'expense') return false;
+
+      // statType에 따라 필터링
+      if (statType === 'living') {
+        if (t.category?.type === 'fixed') return false;
+      } else {
+        if (t.category?.type !== 'fixed') return false;
+      }
+
+      // 선택된 카테고리로 필터링
+      if (selectedCategory) {
+        return t.categoryId === selectedCategory.id;
+      } else {
+        return !t.categoryId; // 미분류
+      }
+    });
+  };
+
+  // 프로그레스 바 형식의 차트 렌더링
+  const renderBarChart = () => {
     if (categoryStats.length === 0) {
       return (
         <View style={styles.emptyChart}>
@@ -157,66 +189,69 @@ export default function StatisticsScreen() {
 
     return (
       <View style={styles.chartContainer}>
-        {/* 도넛 차트 시각화 - 원형 바 표시 */}
-        <View style={styles.donutContainer}>
-          <View style={styles.donutChart}>
-            {displayStats.map((stat, index) => {
-              const startAngle = displayStats
-                .slice(0, index)
-                .reduce((sum, s) => sum + (s.percentage * 3.6), 0);
-              const sweepAngle = stat.percentage * 3.6;
-              const color = stat.category?.color || colors.text.tertiary;
+        {/* 총액 표시 */}
+        <View style={styles.totalSection}>
+          <Text style={styles.totalLabel}>
+            {statType === 'living' ? '전체 생활비 지출' : '전체 고정비용'}
+          </Text>
+          <Text style={styles.totalAmount}>
+            {formatCurrency(totalAmount)}
+          </Text>
+        </View>
 
-              return (
-                <View
-                  key={stat.category?.id || 'other'}
-                  style={[
-                    styles.donutSegment,
-                    {
-                      transform: [{ rotate: `${startAngle}deg` }],
-                    },
-                  ]}
-                >
-                  <View
-                    style={[
-                      styles.donutSegmentInner,
-                      {
-                        backgroundColor: color,
-                        transform: [{ rotate: `${Math.min(sweepAngle, 180)}deg` }],
-                      },
-                    ]}
-                  />
-                </View>
-              );
-            })}
-            <View style={styles.donutHole}>
-              <Text style={styles.donutTotalLabel}>
-                {statType === 'living' ? '생활비' : '고정비용'}
-              </Text>
-              <Text style={styles.donutTotalAmount}>
-                {formatCurrency(totalAmount)}
-              </Text>
-            </View>
+        {/* 누적 바 차트 */}
+        <View style={styles.stackedBarContainer}>
+          <View style={styles.stackedBar}>
+            {displayStats.map((stat, index) => (
+              <View
+                key={stat.category?.id || `other-${index}`}
+                style={[
+                  styles.stackedBarSegment,
+                  {
+                    width: `${stat.percentage}%`,
+                    backgroundColor: stat.category?.color || colors.text.tertiary,
+                  },
+                ]}
+              />
+            ))}
           </View>
         </View>
 
-        {/* 범례 */}
+        {/* 범례 및 비율 */}
         <View style={styles.legendContainer}>
           {displayStats.map((stat, index) => (
-            <View key={stat.category?.id || `other-${index}`} style={styles.legendItem}>
-              <View
-                style={[
-                  styles.legendColor,
-                  { backgroundColor: stat.category?.color || colors.text.tertiary },
-                ]}
+            <TouchableOpacity
+              key={stat.category?.id || `other-${index}`}
+              style={styles.legendItem}
+              onPress={() => handleCategoryPress(stat.category)}
+              activeOpacity={0.7}
+            >
+              <View style={styles.legendLeft}>
+                <View
+                  style={[
+                    styles.legendColor,
+                    { backgroundColor: stat.category?.color || colors.text.tertiary },
+                  ]}
+                />
+                <Text style={styles.legendText} numberOfLines={1}>
+                  {stat.category?.name || '미분류'}
+                </Text>
+              </View>
+              <View style={styles.legendRight}>
+                <Text style={styles.legendAmount}>
+                  {formatCurrency(stat.amount)}
+                </Text>
+                <Text style={styles.legendPercentage}>
+                  {stat.percentage.toFixed(1)}%
+                </Text>
+              </View>
+              <Ionicons
+                name="chevron-forward"
+                size={16}
+                color={colors.text.tertiary}
+                style={styles.legendArrow}
               />
-              <Text style={styles.legendText} numberOfLines={1}>
-                {stat.category?.name || '미분류'}
-              </Text>
-              <Text style={styles.legendPercentage}>
-                {stat.percentage.toFixed(1)}%
-              </Text>
-            </View>
+            </TouchableOpacity>
           ))}
         </View>
       </View>
@@ -276,7 +311,7 @@ export default function StatisticsScreen() {
           showsVerticalScrollIndicator={false}
         >
           {/* Chart */}
-          {renderDonutChart()}
+          {renderBarChart()}
 
           {/* Category List */}
           <View style={styles.categoryList}>
@@ -295,9 +330,11 @@ export default function StatisticsScreen() {
             ) : (
               <View style={styles.listCard}>
                 {categoryStats.map((stat, index) => (
-                  <View
+                  <TouchableOpacity
                     key={stat.category?.id || `uncategorized-${index}`}
                     style={[styles.listItem, index < categoryStats.length - 1 && styles.listItemBorder]}
+                    onPress={() => handleCategoryPress(stat.category)}
+                    activeOpacity={0.7}
                   >
                     <View style={styles.listItemLeft}>
                       <View
@@ -325,13 +362,30 @@ export default function StatisticsScreen() {
                       </Text>
                       <Text style={styles.listItemPercentage}>{stat.percentage.toFixed(1)}%</Text>
                     </View>
-                  </View>
+                    <Ionicons
+                      name="chevron-forward"
+                      size={18}
+                      color={colors.text.tertiary}
+                      style={styles.listItemArrow}
+                    />
+                  </TouchableOpacity>
                 ))}
               </View>
             )}
           </View>
         </ScrollView>
       )}
+
+      {/* 카테고리별 거래 내역 시트 */}
+      <CategoryTransactionSheet
+        visible={showCategorySheet}
+        category={selectedCategory}
+        transactions={getFilteredTransactions()}
+        onClose={() => {
+          setShowCategorySheet(false);
+          setSelectedCategory(null);
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -429,41 +483,45 @@ const styles = StyleSheet.create({
     marginBottom: spacing.lg,
     ...shadows.md,
   },
-  donutContainer: {
+  totalSection: {
     alignItems: 'center',
     marginBottom: spacing.lg,
   },
-  donutChart: {
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-    backgroundColor: colors.background.tertiary,
-    alignItems: 'center',
-    justifyContent: 'center',
+  totalLabel: {
+    fontSize: typography.fontSize.sm,
+    color: colors.text.tertiary,
+    marginBottom: spacing.xs,
+  },
+  totalAmount: {
+    fontSize: typography.fontSize['2xl'],
+    fontWeight: typography.fontWeight.bold,
+    color: colors.text.primary,
+  },
+  stackedBarContainer: {
+    marginBottom: spacing.lg,
+  },
+  stackedBar: {
+    flexDirection: 'row',
+    height: 24,
+    borderRadius: borderRadius.sm,
     overflow: 'hidden',
+    backgroundColor: colors.background.tertiary,
   },
-  donutSegment: {
-    position: 'absolute',
-    width: 200,
-    height: 200,
+  stackedBarSegment: {
+    height: '100%',
   },
-  donutSegmentInner: {
-    width: 100,
-    height: 200,
-    borderTopRightRadius: 100,
-    borderBottomRightRadius: 100,
-    position: 'absolute',
-    left: 100,
-    transformOrigin: 'left center',
-  },
-  donutHole: {
-    width: 130,
-    height: 130,
-    borderRadius: 65,
-    backgroundColor: colors.background.secondary,
+  legendLeft: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    ...shadows.sm,
+    flex: 1,
+  },
+  legendRight: {
+    alignItems: 'flex-end',
+  },
+  legendAmount: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.medium,
+    color: colors.text.primary,
   },
   donutTotalLabel: {
     fontSize: typography.fontSize.sm,
@@ -490,35 +548,32 @@ const styles = StyleSheet.create({
     color: colors.text.tertiary,
   },
   legendContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    gap: spacing.sm,
+    marginTop: spacing.sm,
   },
   legendItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.background.tertiary,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: borderRadius.sm,
+    justifyContent: 'space-between',
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border.light,
   },
   legendColor: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    marginRight: spacing.xs,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginRight: spacing.sm,
   },
   legendText: {
-    fontSize: typography.fontSize.xs,
-    color: colors.text.secondary,
-    maxWidth: 60,
+    fontSize: typography.fontSize.sm,
+    color: colors.text.primary,
+    flex: 1,
   },
   legendPercentage: {
-    fontSize: typography.fontSize.xs,
+    fontSize: typography.fontSize.sm,
     fontWeight: typography.fontWeight.medium,
-    color: colors.text.primary,
-    marginLeft: spacing.xs,
+    color: colors.text.tertiary,
+    marginLeft: spacing.sm,
   },
   categoryList: {
     marginTop: spacing.md,
@@ -598,5 +653,11 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.base,
     color: colors.text.tertiary,
     marginTop: spacing.md,
+  },
+  legendArrow: {
+    marginLeft: spacing.sm,
+  },
+  listItemArrow: {
+    marginLeft: spacing.sm,
   },
 });

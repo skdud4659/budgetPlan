@@ -20,6 +20,8 @@ const transformTransaction = (row: any): Transaction => ({
   totalTerm: row.total_term,
   currentTerm: row.current_term,
   installmentDay: row.installment_day,
+  installmentId: row.installment_id,
+  originalAmount: row.original_amount ? parseFloat(row.original_amount) : null,
   includeInLivingExpense: row.include_in_living_expense ?? true,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
@@ -169,9 +171,42 @@ export const transactionService = {
 
     if (error) throw error;
 
-    // 자산 잔액은 assetService에서 거래 기반으로 자동 계산되므로 별도 업데이트 불필요
+    const createdTransaction = transformTransaction(data);
 
-    return transformTransaction(data);
+    // 할부 마스터 생성 시 첫 번째 월별 거래도 함께 생성
+    if (item.isInstallment && item.totalTerm && item.currentTerm && item.installmentDay) {
+      const masterId = createdTransaction.id;
+      const monthlyAmount = Math.round(item.amount / item.totalTerm);
+
+      // 현재 월의 납부일 날짜 계산
+      const today = new Date();
+      const currentYear = today.getFullYear();
+      const currentMonth = today.getMonth() + 1;
+      const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
+      const actualDay = Math.min(item.installmentDay, daysInMonth);
+      const transactionDate = `${currentYear}-${String(currentMonth).padStart(2, "0")}-${String(actualDay).padStart(2, "0")}`;
+
+      // 첫 번째 월별 거래 생성
+      await supabase.from("transactions").insert({
+        user_id: user.id,
+        title: item.title,
+        amount: monthlyAmount,
+        date: transactionDate,
+        type: item.type,
+        category_id: item.categoryId || null,
+        asset_id: item.assetId || null,
+        budget_type: item.budgetType,
+        is_installment: true,
+        total_term: item.totalTerm,
+        current_term: item.currentTerm,
+        installment_day: item.installmentDay,
+        installment_id: masterId, // 마스터 참조
+        original_amount: item.amount,
+        include_in_living_expense: item.includeInLivingExpense ?? false,
+      });
+    }
+
+    return createdTransaction;
   },
 
   // 거래 내역 수정
@@ -278,7 +313,9 @@ export const transactionService = {
   ): Promise<Transaction[]> {
     const { startDate, endDate } = this.getMonthDateRange(year, month, monthStartDay);
 
-    // 일반 거래 조회 (할부 제외)
+    // 일반 거래 및 월별 할부 거래 조회 (마스터 할부 제외)
+    // installment_id가 null이 아닌 것 = 월별 할부 거래
+    // is_installment가 false인 것 = 일반 거래
     const { data, error } = await supabase
       .from("transactions")
       .select(
@@ -291,26 +328,13 @@ export const transactionService = {
       )
       .gte("date", startDate)
       .lte("date", endDate)
-      .eq("is_installment", false)
+      .or("is_installment.eq.false,and(is_installment.eq.true,installment_id.not.is.null)")
       .order("date", { ascending: false })
       .order("created_at", { ascending: false });
 
     if (error) throw error;
 
-    const regularTransactions = (data || []).map(transformTransaction);
-
-    // 해당 기간의 할부 조회
-    const installments = await this.getInstallmentsForDateRange(startDate, endDate);
-
-    // 통합하여 날짜순 정렬
-    const allTransactions = [...regularTransactions, ...installments].sort((a, b) => {
-      if (a.date !== b.date) {
-        return b.date.localeCompare(a.date);
-      }
-      return b.createdAt.localeCompare(a.createdAt);
-    });
-
-    return allTransactions;
+    return (data || []).map(transformTransaction);
   },
 
   // 날짜 범위 기준 할부 조회
@@ -426,7 +450,7 @@ export const transactionService = {
     const startDate = `${year}-${String(month).padStart(2, "0")}-01`;
     const endDate = new Date(year, month, 0).toISOString().split("T")[0];
 
-    // 일반 거래 조회 (할부 제외)
+    // 일반 거래 및 월별 할부 거래 조회 (마스터 할부 제외)
     const { data, error } = await supabase
       .from("transactions")
       .select(
@@ -439,29 +463,18 @@ export const transactionService = {
       )
       .gte("date", startDate)
       .lte("date", endDate)
-      .eq("is_installment", false)
+      .or("is_installment.eq.false,and(is_installment.eq.true,installment_id.not.is.null)")
       .order("date", { ascending: false })
       .order("created_at", { ascending: false });
 
     if (error) throw error;
 
-    const regularTransactions = (data || []).map(transformTransaction);
-
-    // 해당 월의 할부 조회
-    const installments = await this.getInstallmentsForMonth(year, month);
-
-    // 통합하여 날짜순 정렬
-    const allTransactions = [...regularTransactions, ...installments].sort((a, b) => {
-      if (a.date !== b.date) {
-        return b.date.localeCompare(a.date);
-      }
-      return b.createdAt.localeCompare(a.createdAt);
-    });
-
-    return allTransactions;
+    return (data || []).map(transformTransaction);
   },
 
-  // 카드 결제 예정 금액 조회 (정산일~결제일 기준)
+  // 카드 결제 예정 금액 조회 (정산일 기준)
+  // 결제 예정 금액: 정산일이 지난 기간 (지난달 정산일 ~ 이번달 정산일-1)
+  // 미결제 금액: 현재 사용 중인 기간 (이번달 정산일 ~ 오늘)
   async getCardBillingAmount(
     assetId: string,
     settlementDate: number,
@@ -472,88 +485,107 @@ export const transactionService = {
     const currentMonth = today.getMonth();
     const currentYear = today.getFullYear();
 
-    // 이번 달 결제 예정 금액 계산
-    // 정산일부터 결제일까지의 사용금액
-    let currentBillingStart: Date;
-    let currentBillingEnd: Date;
-
-    if (settlementDate < billingDate) {
-      // 정산일 < 결제일: 같은 달 (예: 정산 15일, 결제 25일 → 15~24일 사용분)
-      currentBillingStart = new Date(currentYear, currentMonth - 1, settlementDate);
-      currentBillingEnd = new Date(currentYear, currentMonth, billingDate - 1);
-    } else {
-      // 정산일 >= 결제일: 월 걸침 (예: 정산 25일, 결제 15일 → 전월 25일~이번달 14일 사용분)
-      currentBillingStart = new Date(currentYear, currentMonth - 2, settlementDate);
-      currentBillingEnd = new Date(currentYear, currentMonth - 1, billingDate - 1);
-    }
-
-    // 다음 달 결제 예정 금액 (현재 사용 중인 기간)
-    let nextBillingStart: Date;
-    let nextBillingEnd: Date;
-
-    if (settlementDate < billingDate) {
-      nextBillingStart = new Date(currentYear, currentMonth, settlementDate);
-      nextBillingEnd = new Date(currentYear, currentMonth + 1, billingDate - 1);
-    } else {
-      nextBillingStart = new Date(currentYear, currentMonth - 1, settlementDate);
-      nextBillingEnd = new Date(currentYear, currentMonth, billingDate - 1);
-    }
-
     const formatDate = (d: Date) =>
       `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
-    // 정기지출 조회 (해당 카드에 연결된 모든 정기지출)
-    const { data: fixedItemsData, error: fixedError } = await supabase
-      .from("fixed_items")
+    // 정산일 기준으로 기간 계산
+    // 결제 예정 금액: 지난달 정산일 ~ 이번달 정산일-1
+    const billingPeriodStart = new Date(currentYear, currentMonth - 1, settlementDate);
+    const billingPeriodEnd = new Date(currentYear, currentMonth, settlementDate - 1);
+
+    // 미결제 금액: 이번달 정산일 ~ 오늘
+    const unbilledPeriodStart = new Date(currentYear, currentMonth, settlementDate);
+    const unbilledPeriodEnd = today;
+
+    // 정산일이 지났는지 확인
+    const isAfterSettlement = currentDay >= settlementDate;
+
+    // 결제 예정 금액 조회 - 지출 (마스터 할부 제외 - installment_id가 null이 아닌 것만)
+    const { data: billingExpenseData, error: billingExpenseError } = await supabase
+      .from("transactions")
+      .select("amount, is_installment, installment_id")
+      .eq("asset_id", assetId)
+      .eq("type", "expense")
+      .gte("date", formatDate(billingPeriodStart))
+      .lte("date", formatDate(billingPeriodEnd))
+      .or("is_installment.eq.false,and(is_installment.eq.true,installment_id.not.is.null)");
+
+    if (billingExpenseError) throw billingExpenseError;
+
+    // 결제 예정 금액에서 차감할 금액 조회 (수입 + 이체로 들어온 금액)
+    const { data: billingIncomeData, error: billingIncomeError } = await supabase
+      .from("transactions")
       .select("amount")
-      .eq("asset_id", assetId);
-
-    if (fixedError) throw fixedError;
-
-    const fixedExpenseTotal = (fixedItemsData || []).reduce(
-      (sum, f) => sum + parseFloat(f.amount),
-      0
-    );
-
-    // 이번 달 결제 예정 금액 조회 (거래 내역)
-    const { data: currentData, error: currentError } = await supabase
-      .from("transactions")
-      .select("amount, is_installment, total_term")
       .eq("asset_id", assetId)
-      .eq("type", "expense")
-      .gte("date", formatDate(currentBillingStart))
-      .lte("date", formatDate(currentBillingEnd));
+      .eq("type", "income")
+      .gte("date", formatDate(billingPeriodStart))
+      .lte("date", formatDate(billingPeriodEnd));
 
-    if (currentError) throw currentError;
+    if (billingIncomeError) throw billingIncomeError;
 
-    const currentTransactionBilling = (currentData || []).reduce((sum, t) => {
-      if (t.is_installment && t.total_term > 0) {
-        return sum + Math.round(parseFloat(t.amount) / t.total_term);
-      }
+    // 이체로 카드에 들어온 금액 (카드 대금 결제)
+    // 결제는 정산 기간 이후에도 할 수 있으므로, 결제일(billingDate)까지 또는 오늘까지의 이체를 포함
+    const billingTransferEnd = isAfterSettlement
+      ? today
+      : new Date(currentYear, currentMonth, billingDate);
+
+    const { data: billingTransferData, error: billingTransferError } = await supabase
+      .from("transactions")
+      .select("amount")
+      .eq("to_asset_id", assetId)
+      .eq("type", "transfer")
+      .gte("date", formatDate(billingPeriodStart))
+      .lte("date", formatDate(billingTransferEnd));
+
+    if (billingTransferError) throw billingTransferError;
+
+    const billingExpense = (billingExpenseData || []).reduce((sum, t) => {
       return sum + parseFloat(t.amount);
     }, 0);
 
-    // 다음 달 결제 예정 금액 조회 (거래 내역)
-    const { data: nextData, error: nextError } = await supabase
-      .from("transactions")
-      .select("amount, is_installment, total_term")
-      .eq("asset_id", assetId)
-      .eq("type", "expense")
-      .gte("date", formatDate(nextBillingStart))
-      .lte("date", formatDate(nextBillingEnd));
-
-    if (nextError) throw nextError;
-
-    const nextTransactionBilling = (nextData || []).reduce((sum, t) => {
-      if (t.is_installment && t.total_term > 0) {
-        return sum + Math.round(parseFloat(t.amount) / t.total_term);
-      }
+    const billingIncome = (billingIncomeData || []).reduce((sum, t) => {
       return sum + parseFloat(t.amount);
     }, 0);
 
-    // 거래 내역 + 정기지출 합산
-    const currentBilling = currentTransactionBilling + fixedExpenseTotal;
-    const nextBilling = nextTransactionBilling + fixedExpenseTotal;
+    const billingTransfer = (billingTransferData || []).reduce((sum, t) => {
+      return sum + parseFloat(t.amount);
+    }, 0);
+
+    const currentBilling = Math.max(0, billingExpense - billingIncome - billingTransfer);
+
+    // 미결제 금액 조회 - 지출 (마스터 할부 제외)
+    const { data: unbilledExpenseData, error: unbilledExpenseError } = await supabase
+      .from("transactions")
+      .select("amount, is_installment, installment_id")
+      .eq("asset_id", assetId)
+      .eq("type", "expense")
+      .gte("date", formatDate(unbilledPeriodStart))
+      .lte("date", formatDate(unbilledPeriodEnd))
+      .or("is_installment.eq.false,and(is_installment.eq.true,installment_id.not.is.null)");
+
+    if (unbilledExpenseError) throw unbilledExpenseError;
+
+    // 미결제 금액에서 차감할 수입 조회 (이체는 제외 - 이체는 결제 예정 금액 결제용)
+    const { data: unbilledIncomeData, error: unbilledIncomeError } = await supabase
+      .from("transactions")
+      .select("amount")
+      .eq("asset_id", assetId)
+      .eq("type", "income")
+      .gte("date", formatDate(unbilledPeriodStart))
+      .lte("date", formatDate(unbilledPeriodEnd));
+
+    if (unbilledIncomeError) throw unbilledIncomeError;
+
+    const unbilledExpense = (unbilledExpenseData || []).reduce((sum, t) => {
+      return sum + parseFloat(t.amount);
+    }, 0);
+
+    const unbilledIncome = (unbilledIncomeData || []).reduce((sum, t) => {
+      return sum + parseFloat(t.amount);
+    }, 0);
+
+    // 미결제 금액: 이체는 차감하지 않음 (이체는 결제 예정 금액을 갚는 용도)
+    const nextBilling = Math.max(0, unbilledExpense - unbilledIncome);
 
     return { currentBilling, nextBilling };
   },
@@ -751,5 +783,227 @@ export const transactionService = {
 
     const alreadyGenerated = await AsyncStorage.getItem(generatedKey);
     return !alreadyGenerated;
+  },
+
+  // 할부 월별 거래 자동 생성 (고정비용과 유사)
+  async generateInstallmentTransactions(
+    monthStartDay: number
+  ): Promise<{ generated: number; skipped: number }> {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return { generated: 0, skipped: 0 };
+
+    const today = new Date();
+    const currentYear = today.getFullYear();
+    const currentMonth = today.getMonth() + 1;
+    const currentDay = today.getDate();
+
+    // 현재 기간의 시작/끝 계산
+    let periodStartYear = currentYear;
+    let periodStartMonth = currentMonth;
+    let periodEndYear = currentYear;
+    let periodEndMonth = currentMonth;
+
+    if (monthStartDay !== 1) {
+      if (currentDay < monthStartDay) {
+        periodStartYear = currentMonth === 1 ? currentYear - 1 : currentYear;
+        periodStartMonth = currentMonth === 1 ? 12 : currentMonth - 1;
+      } else {
+        periodEndMonth = currentMonth === 12 ? 1 : currentMonth + 1;
+        periodEndYear = currentMonth === 12 ? currentYear + 1 : currentYear;
+      }
+    }
+
+    // 이미 이 기간에 할부 생성했는지 확인
+    const periodKey = `${periodStartYear}-${String(periodStartMonth).padStart(2, "0")}-${monthStartDay}`;
+    const generatedKey = `installment_generated_${user.id}_${periodKey}`;
+    const alreadyGenerated = await AsyncStorage.getItem(generatedKey);
+
+    if (alreadyGenerated) {
+      return { generated: 0, skipped: 0 };
+    }
+
+    // 모든 할부 마스터 조회 (installment_id가 null인 것 = 마스터)
+    const { data: installmentMasters, error } = await supabase
+      .from("transactions")
+      .select("*")
+      .eq("user_id", user.id)
+      .eq("is_installment", true)
+      .is("installment_id", null);
+
+    if (error || !installmentMasters) {
+      return { generated: 0, skipped: 0 };
+    }
+
+    let generated = 0;
+    let skipped = 0;
+
+    for (const master of installmentMasters) {
+      try {
+        const startDate = new Date(master.date);
+        const startYear = startDate.getFullYear();
+        const startMonth = startDate.getMonth() + 1;
+        const totalTerm = master.total_term || 1;
+        const currentTerm = master.current_term || 1;
+        const installmentDay = master.installment_day || startDate.getDate();
+
+        // 현재 기간에 해당하는 회차 계산
+        const monthDiff = (periodStartYear - startYear) * 12 + (periodStartMonth - startMonth);
+        const termForPeriod = currentTerm + monthDiff;
+
+        // 유효한 회차인지 확인
+        if (termForPeriod < 1 || termForPeriod > totalTerm) {
+          skipped++;
+          continue;
+        }
+
+        // 거래 날짜 계산
+        let transactionYear: number;
+        let transactionMonth: number;
+
+        if (monthStartDay === 1) {
+          transactionYear = periodStartYear;
+          transactionMonth = periodStartMonth;
+        } else {
+          if (installmentDay >= monthStartDay) {
+            transactionYear = periodStartYear;
+            transactionMonth = periodStartMonth;
+          } else {
+            transactionYear = periodEndYear;
+            transactionMonth = periodEndMonth;
+          }
+        }
+
+        const daysInMonth = new Date(transactionYear, transactionMonth, 0).getDate();
+        const actualDay = Math.min(installmentDay, daysInMonth);
+        const transactionDate = `${transactionYear}-${String(transactionMonth).padStart(2, "0")}-${String(actualDay).padStart(2, "0")}`;
+
+        // 이미 해당 기간에 이 할부의 월별 거래가 있는지 확인
+        const { data: existing } = await supabase
+          .from("transactions")
+          .select("id")
+          .eq("user_id", user.id)
+          .eq("installment_id", master.id)
+          .eq("date", transactionDate)
+          .single();
+
+        if (existing) {
+          skipped++;
+          continue;
+        }
+
+        // 월별 금액 계산
+        const monthlyAmount = Math.round(master.amount / totalTerm);
+
+        // 월별 거래 생성
+        await supabase.from("transactions").insert({
+          user_id: user.id,
+          title: master.title,
+          amount: monthlyAmount,
+          date: transactionDate,
+          type: "expense",
+          category_id: master.category_id,
+          asset_id: master.asset_id,
+          budget_type: master.budget_type,
+          is_installment: true,
+          total_term: totalTerm,
+          current_term: termForPeriod,
+          installment_day: installmentDay,
+          installment_id: master.id, // 마스터 참조
+          original_amount: master.amount,
+          include_in_living_expense: master.include_in_living_expense ?? false,
+        });
+
+        generated++;
+      } catch (error) {
+        console.error(`할부 거래 생성 실패: ${master.title}`, error);
+        skipped++;
+      }
+    }
+
+    // 생성 완료 표시
+    if (generated > 0 || installmentMasters.length === skipped) {
+      await AsyncStorage.setItem(generatedKey, new Date().toISOString());
+    }
+
+    return { generated, skipped };
+  },
+
+  // 할부 월별 거래 조회 (실제 생성된 거래만)
+  async getMonthlyInstallmentTransactions(
+    year: number,
+    month: number,
+    monthStartDay: number
+  ): Promise<Transaction[]> {
+    const { startDate, endDate } = this.getMonthDateRange(year, month, monthStartDay);
+
+    const { data, error } = await supabase
+      .from("transactions")
+      .select(
+        `
+        *,
+        categories (id, user_id, name, icon_name, color, type, sort_order, is_default, is_hidden, created_at),
+        assets!transactions_asset_id_fkey (id, user_id, name, type, balance, billing_date, settlement_date, sort_order, created_at, updated_at)
+      `
+      )
+      .eq("is_installment", true)
+      .not("installment_id", "is", null) // 마스터가 아닌 월별 거래만
+      .gte("date", startDate)
+      .lte("date", endDate)
+      .order("date", { ascending: false });
+
+    if (error) throw error;
+    return (data || []).map(transformTransaction);
+  },
+
+  // 할부 마스터 목록 조회 (진행중인 것만)
+  async getInstallmentMasters(): Promise<Transaction[]> {
+    const today = new Date();
+    const currentYear = today.getFullYear();
+    const currentMonth = today.getMonth() + 1;
+
+    const { data, error } = await supabase
+      .from("transactions")
+      .select(
+        `
+        *,
+        categories (id, user_id, name, icon_name, color, type, sort_order, is_default, is_hidden, created_at),
+        assets!transactions_asset_id_fkey (id, user_id, name, type, balance, billing_date, settlement_date, sort_order, created_at, updated_at)
+      `
+      )
+      .eq("is_installment", true)
+      .is("installment_id", null) // 마스터만
+      .order("date", { ascending: false });
+
+    if (error) throw error;
+
+    // 진행중인 할부만 필터링 (현재 월 기준)
+    return (data || [])
+      .map(transformTransaction)
+      .filter((master) => {
+        if (!master.totalTerm || !master.currentTerm) return false;
+        const startDate = new Date(master.date);
+        const startYear = startDate.getFullYear();
+        const startMonth = startDate.getMonth() + 1;
+        const monthDiff = (currentYear - startYear) * 12 + (currentMonth - startMonth);
+        const termForNow = master.currentTerm + monthDiff;
+        return termForNow >= 1 && termForNow <= master.totalTerm;
+      });
+  },
+
+  // 할부 마스터와 관련 월별 거래 모두 삭제
+  async deleteInstallmentWithAllTransactions(masterId: string): Promise<void> {
+    // 먼저 월별 거래 삭제
+    await supabase
+      .from("transactions")
+      .delete()
+      .eq("installment_id", masterId);
+
+    // 마스터 삭제
+    await supabase
+      .from("transactions")
+      .delete()
+      .eq("id", masterId);
   },
 };

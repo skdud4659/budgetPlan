@@ -19,43 +19,65 @@ import {
   borderRadius,
   shadows,
 } from "../../src/styles";
-import type { FixedItem, FixedItemType, BudgetType } from "../../src/types";
+import type { FixedItem, FixedItemType, BudgetType, Transaction } from "../../src/types";
 import { fixedItemService } from "../../src/services/fixedItemService";
+import { transactionService } from "../../src/services/transactionService";
 import { useSettings } from "../../src/contexts/SettingsContext";
 import AddFixedItemSheet from "../../src/components/AddFixedItemSheet";
+import AddTransactionSheet from "../../src/components/AddTransactionSheet";
 import ConfirmModal from "../../src/components/ConfirmModal";
 
-export default function FixedScreen() {
-  const { jointBudgetEnabled } = useSettings();
+type TabType = 'fixed' | 'installment';
 
+export default function FixedScreen() {
+  const { jointBudgetEnabled, monthStartDay } = useSettings();
+
+  const [activeTab, setActiveTab] = useState<TabType>('fixed');
   const [fixedItems, setFixedItems] = useState<FixedItem[]>([]);
+  const [installments, setInstallments] = useState<Transaction[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showAddSheet, setShowAddSheet] = useState(false);
   const [editingItem, setEditingItem] = useState<FixedItem | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<FixedItem | null>(null);
   const [budgetTypeFilter, setBudgetTypeFilter] = useState<'all' | 'personal' | 'joint'>('all');
+  // 할부 수정용 상태
+  const [showInstallmentSheet, setShowInstallmentSheet] = useState(false);
+  const [editingInstallment, setEditingInstallment] = useState<Transaction | null>(null);
 
-  // 정기지출 목록 불러오기
-  const loadFixedItems = useCallback(async () => {
+  // 데이터 불러오기
+  const loadData = useCallback(async () => {
     try {
       setIsLoading(true);
-      const data = await fixedItemService.getFixedItems();
-      setFixedItems(data);
+      const [fixedData, installmentData] = await Promise.all([
+        fixedItemService.getFixedItems(),
+        loadInstallmentMasters(),
+      ]);
+      setFixedItems(fixedData);
+      setInstallments(installmentData);
     } catch (error: any) {
-      console.log("Error loading fixed items:", error.message);
+      console.log("Error loading data:", error.message);
     } finally {
       setIsLoading(false);
     }
   }, []);
+
+  // 할부 마스터 목록 불러오기 (진행중인 것만)
+  const loadInstallmentMasters = async (): Promise<Transaction[]> => {
+    // 마스터 할부 목록 조회 (월별 거래가 아닌 원본 할부 정보)
+    const masters = await transactionService.getInstallmentMasters();
+    return masters;
+  };
 
   useFocusEffect(
     useCallback(() => {
       setShowAddSheet(false);
       setEditingItem(null);
       setDeleteTarget(null);
+      setShowInstallmentSheet(false);
+      setEditingInstallment(null);
 
-      loadFixedItems();
-    }, [loadFixedItems])
+      loadData();
+    }, [loadData])
   );
 
   // 정기지출 추가/수정 처리
@@ -74,10 +96,16 @@ export default function FixedScreen() {
       } else {
         await fixedItemService.createFixedItem(data);
       }
-      loadFixedItems();
+      loadData();
     } catch (error: any) {
       console.log("Error saving fixed item:", error.message);
     }
+  };
+
+  // 할부 수정 처리
+  const handleEditInstallment = (installment: Transaction) => {
+    setEditingInstallment(installment);
+    setShowInstallmentSheet(true);
   };
 
   const handleEditItem = (item: FixedItem) => {
@@ -100,7 +128,7 @@ export default function FixedScreen() {
     try {
       await fixedItemService.deleteFixedItem(deleteTarget.id);
       handleCloseSheet();
-      loadFixedItems();
+      loadData();
     } catch (error: any) {
       console.log("Delete error", error);
     } finally {
@@ -108,9 +136,15 @@ export default function FixedScreen() {
     }
   };
 
-  // 필터링
+  // 고정비용 필터링
   const filteredItems = fixedItems.filter((item) => {
     if (item.type !== "fixed") return false;
+    if (budgetTypeFilter === 'all') return true;
+    return item.budgetType === budgetTypeFilter;
+  });
+
+  // 할부 필터링
+  const filteredInstallments = installments.filter((item) => {
     if (budgetTypeFilter === 'all') return true;
     return item.budgetType === budgetTypeFilter;
   });
@@ -118,9 +152,74 @@ export default function FixedScreen() {
   // 합계
   const totalFixed = filteredItems.reduce((sum, item) => sum + item.amount, 0);
 
+  // 할부 월 납입금 합계 (총액 / 개월수로 계산)
+  const totalInstallment = filteredInstallments.reduce((sum, item) => {
+    const monthlyAmount = item.totalTerm && item.totalTerm > 0
+      ? Math.round(item.amount / item.totalTerm)
+      : item.amount;
+    return sum + monthlyAmount;
+  }, 0);
+
   const formatCurrency = (amount: number) => {
     return amount.toLocaleString("ko-KR") + "원";
   };
+
+  // 납부일별 그룹핑 (고정비용)
+  const groupFixedByDay = () => {
+    const groups: { day: number; items: FixedItem[]; total: number }[] = [];
+    const dayMap: Record<number, FixedItem[]> = {};
+
+    filteredItems.forEach((item) => {
+      if (!dayMap[item.day]) {
+        dayMap[item.day] = [];
+      }
+      dayMap[item.day].push(item);
+    });
+
+    Object.keys(dayMap)
+      .map(Number)
+      .sort((a, b) => a - b)
+      .forEach((day) => {
+        const items = dayMap[day];
+        const total = items.reduce((sum, item) => sum + item.amount, 0);
+        groups.push({ day, items, total });
+      });
+
+    return groups;
+  };
+
+  // 납부일별 그룹핑 (할부)
+  const groupInstallmentsByDay = () => {
+    const groups: { day: number; items: Transaction[]; total: number }[] = [];
+    const dayMap: Record<number, Transaction[]> = {};
+
+    filteredInstallments.forEach((item) => {
+      const day = item.installmentDay || 1;
+      if (!dayMap[day]) {
+        dayMap[day] = [];
+      }
+      dayMap[day].push(item);
+    });
+
+    Object.keys(dayMap)
+      .map(Number)
+      .sort((a, b) => a - b)
+      .forEach((day) => {
+        const items = dayMap[day];
+        const total = items.reduce((sum, item) => {
+          const monthlyAmount = item.totalTerm && item.totalTerm > 0
+            ? Math.round(item.amount / item.totalTerm)
+            : item.amount;
+          return sum + monthlyAmount;
+        }, 0);
+        groups.push({ day, items, total });
+      });
+
+    return groups;
+  };
+
+  const groupedFixedItems = groupFixedByDay();
+  const groupedInstallments = groupInstallmentsByDay();
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
@@ -129,9 +228,37 @@ export default function FixedScreen() {
         <Text style={styles.headerTitle}>고정비용</Text>
         <TouchableOpacity
           style={styles.addButton}
-          onPress={() => setShowAddSheet(true)}
+          onPress={() => {
+            if (activeTab === 'fixed') {
+              setShowAddSheet(true);
+            } else {
+              // 할부 탭에서는 할부 추가 시트 열기
+              setShowInstallmentSheet(true);
+              setEditingInstallment(null);
+            }
+          }}
         >
           <Ionicons name="add" size={24} color={colors.primary.main} />
+        </TouchableOpacity>
+      </View>
+
+      {/* Tab Selector */}
+      <View style={styles.tabContainer}>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'fixed' && styles.tabActive]}
+          onPress={() => setActiveTab('fixed')}
+        >
+          <Text style={[styles.tabText, activeTab === 'fixed' && styles.tabTextActive]}>
+            고정비용
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'installment' && styles.tabActive]}
+          onPress={() => setActiveTab('installment')}
+        >
+          <Text style={[styles.tabText, activeTab === 'installment' && styles.tabTextActive]}>
+            할부
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -139,7 +266,9 @@ export default function FixedScreen() {
       <View style={styles.infoCardTop}>
         <Ionicons name="information-circle-outline" size={20} color={colors.text.tertiary} />
         <Text style={styles.infoText}>
-          고정비용은 매월 지정한 날짜에 자동으로 거래 내역에 추가됩니다
+          {activeTab === 'fixed'
+            ? '고정비용은 매월 지정한 날짜에 자동으로 거래 내역에 추가됩니다'
+            : '할부 금액을 터치하여 이번 달 납입금액을 수정할 수 있습니다'}
         </Text>
       </View>
 
@@ -202,56 +331,127 @@ export default function FixedScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Summary */}
-        <View style={styles.summaryCard}>
-          <View style={styles.summaryHeader}>
-            <Text style={styles.summaryTitle}>월 고정비용</Text>
-          </View>
+        {activeTab === 'fixed' ? (
+          <>
+            {/* Summary */}
+            <View style={styles.summaryCard}>
+              <View style={styles.summaryHeader}>
+                <Text style={styles.summaryTitle}>월 고정비용</Text>
+              </View>
 
-          <View style={styles.totalRow}>
-            <Text style={styles.totalLabel}>{filteredItems.length}건</Text>
-            <Text style={styles.totalAmount}>
-              {formatCurrency(totalFixed)}
-            </Text>
-          </View>
-        </View>
+              <View style={styles.totalRow}>
+                <Text style={styles.totalLabel}>{filteredItems.length}건</Text>
+                <Text style={styles.totalAmount}>
+                  {formatCurrency(totalFixed)}
+                </Text>
+              </View>
+            </View>
 
-        {/* Fixed Items List */}
-        {isLoading ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="small" color={colors.primary.main} />
-          </View>
-        ) : filteredItems.length > 0 ? (
-          <View style={styles.listContainer}>
-            {filteredItems.map((item, index) => (
-              <FixedItemRow
-                key={item.id}
-                item={item}
-                isLast={index === filteredItems.length - 1}
-                onEdit={() => handleEditItem(item)}
-                onDelete={() => handleDeleteItem(item)}
-                showJointBadge={jointBudgetEnabled}
-              />
-            ))}
-          </View>
+            {/* Fixed Items List */}
+            {isLoading ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="small" color={colors.primary.main} />
+              </View>
+            ) : groupedFixedItems.length > 0 ? (
+              <View style={styles.listContainer}>
+                {groupedFixedItems.map((group, groupIndex) => (
+                  <View key={group.day}>
+                    <View style={styles.dayHeader}>
+                      <Text style={styles.dayHeaderText}>매월 {group.day}일</Text>
+                      <Text style={styles.dayHeaderAmount}>
+                        {formatCurrency(group.total)}
+                      </Text>
+                    </View>
+                    {group.items.map((item, index) => (
+                      <FixedItemRow
+                        key={item.id}
+                        item={item}
+                        isLast={index === group.items.length - 1 && groupIndex === groupedFixedItems.length - 1}
+                        onEdit={() => handleEditItem(item)}
+                        onDelete={() => handleDeleteItem(item)}
+                        showJointBadge={jointBudgetEnabled}
+                      />
+                    ))}
+                  </View>
+                ))}
+              </View>
+            ) : (
+              <View style={styles.emptyContainer}>
+                <Ionicons
+                  name="repeat-outline"
+                  size={64}
+                  color={colors.text.tertiary}
+                />
+                <Text style={styles.emptyText}>등록된 고정비용이 없습니다</Text>
+                <Text style={styles.emptySubtext}>
+                  매월 고정적으로 나가는 비용을 등록해 보세요
+                </Text>
+                <TouchableOpacity
+                  style={styles.emptyButton}
+                  onPress={() => setShowAddSheet(true)}
+                >
+                  <Text style={styles.emptyButtonText}>고정비용 추가하기</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </>
         ) : (
-          <View style={styles.emptyContainer}>
-            <Ionicons
-              name="repeat-outline"
-              size={64}
-              color={colors.text.tertiary}
-            />
-            <Text style={styles.emptyText}>등록된 고정비용이 없습니다</Text>
-            <Text style={styles.emptySubtext}>
-              매월 고정적으로 나가는 비용을 등록해 보세요
-            </Text>
-            <TouchableOpacity
-              style={styles.emptyButton}
-              onPress={() => setShowAddSheet(true)}
-            >
-              <Text style={styles.emptyButtonText}>고정비용 추가하기</Text>
-            </TouchableOpacity>
-          </View>
+          <>
+            {/* Installment Summary */}
+            <View style={styles.summaryCard}>
+              <View style={styles.summaryHeader}>
+                <Text style={styles.summaryTitle}>월 할부금</Text>
+              </View>
+
+              <View style={styles.totalRow}>
+                <Text style={styles.totalLabel}>{filteredInstallments.length}건</Text>
+                <Text style={styles.totalAmount}>
+                  {formatCurrency(totalInstallment)}
+                </Text>
+              </View>
+            </View>
+
+            {/* Installment List */}
+            {isLoading ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="small" color={colors.primary.main} />
+              </View>
+            ) : groupedInstallments.length > 0 ? (
+              <View style={styles.listContainer}>
+                {groupedInstallments.map((group, groupIndex) => (
+                  <View key={group.day}>
+                    <View style={styles.dayHeader}>
+                      <Text style={styles.dayHeaderText}>매월 {group.day}일</Text>
+                      <Text style={styles.dayHeaderAmount}>
+                        {formatCurrency(group.total)}
+                      </Text>
+                    </View>
+                    {group.items.map((item, index) => (
+                      <InstallmentRow
+                        key={`${item.id}-${item.currentTerm}`}
+                        item={item}
+                        isLast={index === group.items.length - 1 && groupIndex === groupedInstallments.length - 1}
+                        onEdit={() => handleEditInstallment(item)}
+                        showJointBadge={jointBudgetEnabled}
+                      />
+                    ))}
+                  </View>
+                ))}
+              </View>
+            ) : (
+              <View style={styles.emptyContainer}>
+                <Ionicons
+                  name="card-outline"
+                  size={64}
+                  color={colors.text.tertiary}
+                />
+                <Text style={styles.emptyText}>진행 중인 할부가 없습니다</Text>
+                <Text style={styles.emptySubtext}>
+                  거래 추가 시 할부 옵션을 선택하세요
+                </Text>
+              </View>
+            )}
+          </>
         )}
 
       </ScrollView>
@@ -263,6 +463,22 @@ export default function FixedScreen() {
         onSubmit={handleSubmitItem}
         onDelete={editingItem ? () => handleDeleteItem(editingItem) : undefined}
         editItem={editingItem}
+      />
+
+      {/* 할부 추가/수정 바텀시트 */}
+      <AddTransactionSheet
+        visible={showInstallmentSheet}
+        onClose={() => {
+          setShowInstallmentSheet(false);
+          setEditingInstallment(null);
+        }}
+        onSuccess={() => {
+          loadData();
+          setEditingInstallment(null);
+          setShowInstallmentSheet(false);
+        }}
+        editTransaction={editingInstallment}
+        installmentMode={!editingInstallment} // 신규 추가 시 할부 모드 활성화
       />
 
       {/* 삭제 확인 모달 */}
@@ -277,6 +493,84 @@ export default function FixedScreen() {
         onCancel={() => setDeleteTarget(null)}
       />
     </SafeAreaView>
+  );
+}
+
+// 할부 항목 행 컴포넌트 (마스터 표시용)
+function InstallmentRow({
+  item,
+  isLast,
+  onEdit,
+  showJointBadge,
+}: {
+  item: Transaction;
+  isLast: boolean;
+  onEdit: () => void;
+  showJointBadge: boolean;
+}) {
+  const formatCurrency = (amount: number) => {
+    return amount.toLocaleString("ko-KR") + "원";
+  };
+
+  const categoryColor = item.category?.color || colors.text.tertiary;
+  const categoryIcon = item.category?.iconName || "card";
+  // 월별 금액 계산 (총액 / 개월수)
+  const monthlyAmount = item.totalTerm && item.totalTerm > 0
+    ? Math.round(item.amount / item.totalTerm)
+    : item.amount;
+  // 총액은 amount 필드에 저장됨
+  const totalAmount = item.amount;
+
+  // 현재 월 기준 회차 계산
+  const today = new Date();
+  const currentYear = today.getFullYear();
+  const currentMonth = today.getMonth() + 1;
+  const startDate = new Date(item.date);
+  const startYear = startDate.getFullYear();
+  const startMonth = startDate.getMonth() + 1;
+  const monthDiff = (currentYear - startYear) * 12 + (currentMonth - startMonth);
+  const currentTermForNow = (item.currentTerm || 1) + monthDiff;
+
+  return (
+    <TouchableOpacity
+      style={[styles.itemRow, !isLast && styles.itemRowBorder]}
+      activeOpacity={0.7}
+      onPress={onEdit}
+    >
+      <View
+        style={[
+          styles.itemIcon,
+          { backgroundColor: categoryColor + "20" },
+        ]}
+      >
+        <Ionicons
+          name={categoryIcon as keyof typeof Ionicons.glyphMap}
+          size={20}
+          color={categoryColor}
+        />
+      </View>
+      <View style={styles.itemLeft}>
+        <View style={styles.itemHeader}>
+          <Text style={styles.itemName} numberOfLines={1}>{item.title}</Text>
+          {showJointBadge && item.budgetType === "joint" && (
+            <View style={styles.jointIndicator}>
+              <Ionicons name="people" size={12} color={colors.secondary.dark} />
+            </View>
+          )}
+        </View>
+        <Text style={styles.itemDate}>
+          {item.category?.name || '미분류'}
+          {item.asset?.name && ` · ${item.asset.name}`}
+          {` · ${currentTermForNow}/${item.totalTerm}회차`}
+        </Text>
+      </View>
+      <View style={styles.installmentAmountContainer}>
+        <Text style={styles.itemAmount}>{formatCurrency(monthlyAmount)}</Text>
+        <Text style={styles.itemTotalAmount}>
+          총 {formatCurrency(totalAmount)}
+        </Text>
+      </View>
+    </TouchableOpacity>
   );
 }
 
@@ -365,7 +659,8 @@ function FixedItemRow({
             )}
           </View>
           <Text style={styles.itemDate}>
-            매월 {item.day}일{item.asset?.name && ` · ${item.asset.name}`}
+            {item.category?.name || '미분류'}
+            {item.asset?.name && ` · ${item.asset.name}`}
           </Text>
         </View>
         <Text style={styles.itemAmount}>{formatCurrency(item.amount)}</Text>
@@ -398,6 +693,32 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary.light + "30",
     alignItems: "center",
     justifyContent: "center",
+  },
+  tabContainer: {
+    flexDirection: 'row',
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border.light,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: spacing.md,
+    alignItems: 'center',
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  tabActive: {
+    borderBottomColor: colors.primary.main,
+  },
+  tabText: {
+    fontSize: typography.fontSize.base,
+    fontWeight: typography.fontWeight.medium,
+    color: colors.text.tertiary,
+  },
+  tabTextActive: {
+    color: colors.primary.main,
+    fontWeight: typography.fontWeight.semiBold,
   },
   filterRow: {
     flexDirection: 'row',
@@ -472,6 +793,24 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     ...shadows.sm,
   },
+  dayHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.base,
+    backgroundColor: colors.background.tertiary,
+  },
+  dayHeaderText: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.medium,
+    color: colors.text.secondary,
+  },
+  dayHeaderAmount: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.medium,
+    color: colors.semantic.expense,
+  },
   deleteAction: {
     backgroundColor: colors.semantic.expense,
     justifyContent: "center",
@@ -528,6 +867,14 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.base,
     fontWeight: typography.fontWeight.semiBold,
     color: colors.text.primary,
+  },
+  installmentAmountContainer: {
+    alignItems: 'flex-end',
+  },
+  itemTotalAmount: {
+    fontSize: typography.fontSize.xs,
+    color: colors.text.tertiary,
+    marginTop: 2,
   },
   emptyContainer: {
     alignItems: "center",

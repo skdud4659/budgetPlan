@@ -133,4 +133,63 @@ export const categoryService = {
   async toggleCategoryVisibility(id: string, isHidden: boolean): Promise<Category> {
     return this.updateCategory(id, { isHidden });
   },
+
+  // 카테고리 순서 일괄 업데이트
+  async updateCategoryOrder(categoryIds: string[]): Promise<void> {
+    const updates = categoryIds.map((id, index) => ({
+      id,
+      sort_order: index,
+    }));
+
+    for (const update of updates) {
+      const { error } = await supabase
+        .from("categories")
+        .update({ sort_order: update.sort_order })
+        .eq("id", update.id);
+
+      if (error) throw error;
+    }
+  },
+
+  // 카드 대금 카테고리 조회 또는 생성
+  async getOrCreateCardPaymentCategory(): Promise<Category> {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) throw new Error("로그인이 필요합니다.");
+
+    // 먼저 기존 카드 대금 카테고리 찾기
+    const { data: existingList, error: findError } = await supabase
+      .from("categories")
+      .select("*")
+      .eq("name", "카드 대금")
+      .eq("type", "expense")
+      .or(`user_id.is.null,user_id.eq.${user.id}`)
+      .limit(1);
+
+    if (findError) throw findError;
+
+    if (existingList && existingList.length > 0) {
+      return transformCategory(existingList[0]);
+    }
+
+    // 없으면 생성
+    const { data, error } = await supabase
+      .from("categories")
+      .insert({
+        user_id: user.id,
+        name: "카드 대금",
+        icon_name: "card-outline",
+        color: "#3498DB",
+        type: "expense",
+        sort_order: 99,
+        is_default: false,
+        is_hidden: false,
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return transformCategory(data);
+  },
 };

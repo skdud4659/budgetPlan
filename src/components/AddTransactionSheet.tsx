@@ -36,6 +36,7 @@ interface AddTransactionSheetProps {
   defaultType?: TransactionType;
   defaultAmount?: number;
   defaultTitle?: string;
+  installmentMode?: boolean; // 할부 추가 모드 (할부 토글 기본 활성화)
 }
 
 interface TransactionFormData {
@@ -65,29 +66,45 @@ export default function AddTransactionSheet({
   defaultType,
   defaultAmount,
   defaultTitle,
+  installmentMode,
 }: AddTransactionSheetProps) {
   const isEditMode = !!editTransaction;
 
-  const getInitialFormData = (): TransactionFormData => ({
-    title: editTransaction?.title || defaultTitle || "",
-    amount:
-      editTransaction?.amount?.toString() || defaultAmount?.toString() || "",
-    type: editTransaction?.type || defaultType || "expense",
-    budgetType: editTransaction?.budgetType || "personal",
-    categoryId: editTransaction?.categoryId || null,
-    assetId: editTransaction?.assetId || null,
-    toAssetId: editTransaction?.toAssetId || null,
-    note: editTransaction?.note || "",
-    date: editTransaction?.date || new Date().toISOString().split("T")[0],
-    // 할부 관련 초기값 - 트랜잭션에서 읽어옴
-    isInstallment: editTransaction?.isInstallment || false,
-    totalTerm: editTransaction?.totalTerm?.toString() || "",
-    currentTerm: editTransaction?.currentTerm?.toString() || "1",
-    installmentDay:
-      editTransaction?.installmentDay?.toString() ||
-      new Date().getDate().toString(),
-    includeInLivingExpense: editTransaction?.includeInLivingExpense ?? true,
-  });
+  // 월별 할부 거래인지 확인 (installmentId가 있으면 월별 거래)
+  const isMonthlyInstallment = editTransaction?.isInstallment && editTransaction?.installmentId;
+  // 마스터 할부인지 확인 (isInstallment가 true이고 installmentId가 없으면 마스터)
+  const isMasterInstallment = editTransaction?.isInstallment && !editTransaction?.installmentId;
+
+  const getInitialFormData = (): TransactionFormData => {
+    // 월별 할부 거래는 이미 월별 금액이 저장되어 있음
+    let displayAmount = editTransaction?.amount?.toString() || defaultAmount?.toString() || "";
+
+    // 마스터 할부 수정 시에만 월별 금액으로 변환 (할부 탭에서 수정하는 경우)
+    if (isMasterInstallment && editTransaction.totalTerm && editTransaction.totalTerm > 0) {
+      const monthlyAmount = Math.round(editTransaction.amount / editTransaction.totalTerm);
+      displayAmount = monthlyAmount.toString();
+    }
+
+    return {
+      title: editTransaction?.title || defaultTitle || "",
+      amount: displayAmount,
+      type: editTransaction?.type || defaultType || "expense",
+      budgetType: editTransaction?.budgetType || "personal",
+      categoryId: editTransaction?.categoryId || null,
+      assetId: editTransaction?.assetId || null,
+      toAssetId: editTransaction?.toAssetId || null,
+      note: editTransaction?.note || "",
+      date: editTransaction?.date || new Date().toISOString().split("T")[0],
+      // 할부 관련 초기값 - installmentMode이거나 트랜잭션에서 읽어옴
+      isInstallment: editTransaction?.isInstallment || installmentMode || false,
+      totalTerm: editTransaction?.totalTerm?.toString() || "",
+      currentTerm: editTransaction?.currentTerm?.toString() || "1",
+      installmentDay:
+        editTransaction?.installmentDay?.toString() ||
+        new Date().getDate().toString(),
+      includeInLivingExpense: editTransaction?.includeInLivingExpense ?? true,
+    };
+  };
 
   const [formData, setFormData] = useState<TransactionFormData>(
     getInitialFormData()
@@ -115,7 +132,7 @@ export default function AddTransactionSheet({
     setAlertModal({ visible: true, title, message });
   };
 
-  // 수정 모드일 때 폼 데이터 초기화
+  // 폼 데이터 초기화 (visible, editTransaction, installmentMode 변경 시)
   useEffect(() => {
     if (visible) {
       setFormData(getInitialFormData());
@@ -125,7 +142,7 @@ export default function AddTransactionSheet({
         : new Date();
       setCalendarMonth(initialDate);
     }
-  }, [visible, editTransaction]);
+  }, [visible, editTransaction, installmentMode]);
 
   // 데이터 로드
   useEffect(() => {
@@ -198,37 +215,61 @@ export default function AddTransactionSheet({
     try {
       setIsSaving(true);
 
-      // 모든 거래 (일반 + 할부) transactionService 사용
-      const transactionData = {
-        title: formData.title,
-        amount: parseInt(formData.amount.replace(/,/g, ""), 10),
-        date: formData.date,
-        type: formData.type as TransactionType,
-        budgetType: formData.budgetType,
-        categoryId: formData.categoryId,
-        assetId: formData.assetId,
-        toAssetId: formData.type === "transfer" ? formData.toAssetId : null,
-        note: formData.note || null,
-        // 할부 관련 필드
-        isInstallment: formData.isInstallment,
-        totalTerm: formData.isInstallment
-          ? parseInt(formData.totalTerm, 10)
-          : null,
-        currentTerm: formData.isInstallment
-          ? parseInt(formData.currentTerm || "1", 10)
-          : null,
-        installmentDay: formData.isInstallment
-          ? parseInt(formData.installmentDay, 10)
-          : null,
-        includeInLivingExpense: formData.includeInLivingExpense,
-      };
+      const amount = parseInt(formData.amount.replace(/,/g, ""), 10);
 
       if (isEditMode && editTransaction) {
-        await transactionService.updateTransaction(
-          editTransaction.id,
-          transactionData
-        );
+        let saveAmount = amount;
+
+        // 마스터 할부 수정 시에만 월별 금액을 총액으로 변환
+        if (isMasterInstallment && editTransaction.totalTerm && editTransaction.totalTerm > 0) {
+          saveAmount = amount * editTransaction.totalTerm;
+        }
+        // 월별 할부 거래는 입력값 그대로 저장
+
+        const updateData: any = {
+          title: formData.title,
+          amount: saveAmount,
+          categoryId: formData.categoryId,
+          assetId: formData.assetId,
+          budgetType: formData.budgetType,
+          note: formData.note || null,
+          includeInLivingExpense: formData.includeInLivingExpense,
+        };
+
+        // 일반 거래 또는 월별 할부 거래: 날짜 등 수정 가능
+        if (!isMasterInstallment) {
+          updateData.date = formData.date;
+          updateData.type = formData.type as TransactionType;
+          updateData.toAssetId = formData.type === "transfer" ? formData.toAssetId : null;
+        }
+
+        await transactionService.updateTransaction(editTransaction.id, updateData);
       } else {
+        // 신규 거래 생성 (일반 + 할부)
+        const transactionData = {
+          title: formData.title,
+          amount: amount,
+          date: formData.date,
+          type: formData.type as TransactionType,
+          budgetType: formData.budgetType,
+          categoryId: formData.categoryId,
+          assetId: formData.assetId,
+          toAssetId: formData.type === "transfer" ? formData.toAssetId : null,
+          note: formData.note || null,
+          // 할부 관련 필드
+          isInstallment: formData.isInstallment,
+          totalTerm: formData.isInstallment
+            ? parseInt(formData.totalTerm, 10)
+            : null,
+          currentTerm: formData.isInstallment
+            ? parseInt(formData.currentTerm || "1", 10)
+            : null,
+          installmentDay: formData.isInstallment
+            ? parseInt(formData.installmentDay, 10)
+            : null,
+          includeInLivingExpense: formData.includeInLivingExpense,
+        };
+
         await transactionService.createTransaction(transactionData);
       }
       onSuccess?.();
@@ -280,7 +321,15 @@ export default function AddTransactionSheet({
 
     try {
       setIsDeleting(true);
-      await transactionService.deleteTransaction(transactionId);
+
+      // 마스터 할부 삭제 시 모든 월별 거래도 함께 삭제
+      if (isMasterInstallment) {
+        await transactionService.deleteInstallmentWithAllTransactions(transactionId);
+      } else {
+        // 일반 거래 또는 월별 할부 거래: 해당 거래만 삭제
+        await transactionService.deleteTransaction(transactionId);
+      }
+
       onSuccess?.();
     } catch (error: any) {
       console.error("거래 삭제 실패:", error);
@@ -385,9 +434,12 @@ export default function AddTransactionSheet({
                 />
               </TouchableOpacity>
               <Text style={styles.headerTitle}>
-                {isEditMode ? "거래 수정" : "거래 추가"}
+                {isEditMode
+                  ? (editTransaction?.isInstallment ? "할부 수정" : "거래 수정")
+                  : (installmentMode ? "할부 추가" : "거래 추가")}
               </Text>
               <View style={styles.headerActions}>
+                {/* 삭제 버튼 */}
                 {isEditMode && (
                   <TouchableOpacity
                     onPress={() => {
@@ -442,81 +494,164 @@ export default function AddTransactionSheet({
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
             >
-              {/* Transaction Type */}
-              <View style={styles.typeSelector}>
-                <TouchableOpacity
-                  style={[
-                    styles.typeButton,
-                    formData.type === "expense" &&
-                      styles.typeButtonActiveExpense,
-                  ]}
-                  onPress={() =>
-                    setFormData({
-                      ...formData,
-                      type: "expense",
-                      categoryId: null,
-                    })
-                  }
-                >
-                  <Text
+              {/* 월별 할부 거래 수정 시 회차 정보 표시 */}
+              {isEditMode && isMonthlyInstallment && (
+                <View style={styles.installmentInfoBanner}>
+                  <View style={styles.installmentInfoLeft}>
+                    <Ionicons name="card-outline" size={20} color={colors.primary.main} />
+                    <View>
+                      <Text style={styles.installmentInfoTitle}>
+                        {editTransaction.currentTerm}/{editTransaction.totalTerm}회차 할부
+                      </Text>
+                      <Text style={styles.installmentInfoSubtitle}>
+                        매월 {editTransaction.installmentDay}일
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              )}
+
+              {/* 월별 할부 거래 수정 안내 */}
+              {isEditMode && isMonthlyInstallment && (
+                <View style={styles.installmentNotice}>
+                  <Ionicons name="information-circle-outline" size={18} color={colors.text.tertiary} />
+                  <Text style={styles.installmentNoticeText}>
+                    이 달의 할부 금액만 수정됩니다. 다른 달에는 영향을 주지 않습니다.
+                  </Text>
+                </View>
+              )}
+
+              {/* 마스터 할부 수정 시 회차 정보 표시 */}
+              {isEditMode && isMasterInstallment && (
+                <View style={styles.installmentInfoBanner}>
+                  <View style={styles.installmentInfoLeft}>
+                    <Ionicons name="card-outline" size={20} color={colors.primary.main} />
+                    <View>
+                      <Text style={styles.installmentInfoTitle}>
+                        할부 기본 정보 수정
+                      </Text>
+                      <Text style={styles.installmentInfoSubtitle}>
+                        {editTransaction.totalTerm}개월 · 매월 {editTransaction.installmentDay}일 납부
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              )}
+
+              {/* 마스터 할부 수정 안내 */}
+              {isEditMode && isMasterInstallment && (
+                <View style={styles.installmentNotice}>
+                  <Ionicons name="information-circle-outline" size={18} color={colors.text.tertiary} />
+                  <Text style={styles.installmentNoticeText}>
+                    수정 시 이미 생성된 월별 거래에는 영향을 주지 않습니다. 삭제 시 모든 월별 거래가 함께 삭제됩니다.
+                  </Text>
+                </View>
+              )}
+
+              {/* Transaction Type - 할부 모드 또는 할부 수정 시 숨김 */}
+              {!installmentMode && !(isEditMode && editTransaction?.isInstallment) && (
+                <View style={styles.typeSelector}>
+                  <TouchableOpacity
                     style={[
-                      styles.typeButtonText,
+                      styles.typeButton,
                       formData.type === "expense" &&
-                        styles.typeButtonTextActive,
+                        styles.typeButtonActiveExpense,
                     ]}
+                    onPress={() =>
+                      setFormData({
+                        ...formData,
+                        type: "expense",
+                        categoryId: null,
+                      })
+                    }
                   >
-                    지출
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    styles.typeButton,
-                    formData.type === "income" && styles.typeButtonActiveIncome,
-                  ]}
-                  onPress={() =>
-                    setFormData({
-                      ...formData,
-                      type: "income",
-                      categoryId: null,
-                      isInstallment: false,
-                    })
-                  }
-                >
-                  <Text
+                    <Text
+                      style={[
+                        styles.typeButtonText,
+                        formData.type === "expense" &&
+                          styles.typeButtonTextActive,
+                      ]}
+                    >
+                      지출
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
                     style={[
-                      styles.typeButtonText,
-                      formData.type === "income" && styles.typeButtonTextActive,
+                      styles.typeButton,
+                      formData.type === "income" && styles.typeButtonActiveIncome,
                     ]}
+                    onPress={() =>
+                      setFormData({
+                        ...formData,
+                        type: "income",
+                        categoryId: null,
+                        isInstallment: false,
+                      })
+                    }
                   >
-                    수입
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    styles.typeButton,
-                    formData.type === "transfer" &&
-                      styles.typeButtonActiveTransfer,
-                  ]}
-                  onPress={() =>
-                    setFormData({
-                      ...formData,
-                      type: "transfer",
-                      categoryId: null,
-                      isInstallment: false,
-                    })
-                  }
-                >
-                  <Text
+                    <Text
+                      style={[
+                        styles.typeButtonText,
+                        formData.type === "income" && styles.typeButtonTextActive,
+                      ]}
+                    >
+                      수입
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
                     style={[
-                      styles.typeButtonText,
+                      styles.typeButton,
                       formData.type === "transfer" &&
-                        styles.typeButtonTextActive,
+                        styles.typeButtonActiveTransfer,
                     ]}
+                    onPress={() =>
+                      setFormData({
+                        ...formData,
+                        type: "transfer",
+                        categoryId: null,
+                        isInstallment: false,
+                      })
+                    }
                   >
-                    이체
-                  </Text>
-                </TouchableOpacity>
-              </View>
+                    <Text
+                      style={[
+                        styles.typeButtonText,
+                        formData.type === "transfer" &&
+                          styles.typeButtonTextActive,
+                      ]}
+                    >
+                      이체
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {/* Installment Toggle - 지출일 때만 표시, 할부 모드/수정 시 숨김 */}
+              {formData.type === "expense" && !installmentMode && !(isEditMode && editTransaction?.isInstallment) && (
+                <View style={styles.switchGroup}>
+                  <View style={styles.switchLeft}>
+                    <Text style={styles.switchLabel}>할부로 결제</Text>
+                    <Text style={styles.switchDescription}>
+                      할부 결제인 경우 활성화하세요
+                    </Text>
+                  </View>
+                  <Switch
+                    value={formData.isInstallment}
+                    onValueChange={(value) =>
+                      setFormData({ ...formData, isInstallment: value })
+                    }
+                    trackColor={{
+                      false: colors.border.medium,
+                      true: colors.primary.light,
+                    }}
+                    thumbColor={
+                      formData.isInstallment
+                        ? colors.primary.main
+                        : colors.background.secondary
+                    }
+                  />
+                </View>
+              )}
 
               {/* Amount Input */}
               <View style={styles.amountContainer}>
@@ -750,6 +885,31 @@ export default function AddTransactionSheet({
                 </View>
               )}
 
+              {/* 할부 납부일 - 날짜 선택 대신 표시 (할부 신규 생성 시) */}
+              {formData.isInstallment && !isEditMode && (
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>납부일</Text>
+                  <View style={styles.dayRow}>
+                    <Text style={styles.dayPrefix}>매월</Text>
+                    <TextInput
+                      style={[styles.textInput, styles.dayInput]}
+                      placeholder="15"
+                      placeholderTextColor={colors.text.tertiary}
+                      value={formData.installmentDay}
+                      onChangeText={(text) => {
+                        const num = text.replace(/[^0-9]/g, "");
+                        if (parseInt(num, 10) <= 31 || num === "") {
+                          setFormData({ ...formData, installmentDay: num });
+                        }
+                      }}
+                      keyboardType="numeric"
+                      maxLength={2}
+                    />
+                    <Text style={styles.daySuffix}>일</Text>
+                  </View>
+                </View>
+              )}
+
               {/* Title Input */}
               <View style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>내용</Text>
@@ -810,33 +970,6 @@ export default function AddTransactionSheet({
                       </Text>
                     </TouchableOpacity>
                   </View>
-                </View>
-              )}
-
-              {/* Installment Toggle - 지출일 때만 표시 */}
-              {formData.type === "expense" && (
-                <View style={styles.switchGroup}>
-                  <View style={styles.switchLeft}>
-                    <Text style={styles.switchLabel}>할부로 결제</Text>
-                    <Text style={styles.switchDescription}>
-                      할부 결제인 경우 활성화하세요
-                    </Text>
-                  </View>
-                  <Switch
-                    value={formData.isInstallment}
-                    onValueChange={(value) =>
-                      setFormData({ ...formData, isInstallment: value })
-                    }
-                    trackColor={{
-                      false: colors.border.medium,
-                      true: colors.primary.light,
-                    }}
-                    thumbColor={
-                      formData.isInstallment
-                        ? colors.primary.main
-                        : colors.background.secondary
-                    }
-                  />
                 </View>
               )}
 
@@ -1166,32 +1299,9 @@ export default function AddTransactionSheet({
                 </View>
               )}
 
-              {/* Installment Fields - 할부일 때만 표시 */}
-              {formData.isInstallment && (
+              {/* Installment Fields - 할부 신규 생성 시에만 표시 (수정 시에는 숨김) */}
+              {formData.isInstallment && !isEditMode && (
                 <>
-                  {/* 납부일 */}
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>납부일</Text>
-                    <View style={styles.dayRow}>
-                      <Text style={styles.dayPrefix}>매월</Text>
-                      <TextInput
-                        style={[styles.textInput, styles.dayInput]}
-                        placeholder="15"
-                        placeholderTextColor={colors.text.tertiary}
-                        value={formData.installmentDay}
-                        onChangeText={(text) => {
-                          const num = text.replace(/[^0-9]/g, "");
-                          if (parseInt(num, 10) <= 31 || num === "") {
-                            setFormData({ ...formData, installmentDay: num });
-                          }
-                        }}
-                        keyboardType="numeric"
-                        maxLength={2}
-                      />
-                      <Text style={styles.daySuffix}>일</Text>
-                    </View>
-                  </View>
-
                   {/* 총 할부 개월 */}
                   <View style={styles.inputGroup}>
                     <Text style={styles.inputLabel}>총 할부 개월</Text>
@@ -1775,5 +1885,47 @@ const styles = StyleSheet.create({
   },
   calendarDaySaturday: {
     color: colors.primary.main,
+  },
+  // 할부 수정 시 배너 스타일
+  installmentInfoBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: colors.primary.light + "20",
+    borderRadius: borderRadius.base,
+    padding: spacing.base,
+    marginBottom: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.primary.light,
+  },
+  installmentInfoLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  installmentInfoTitle: {
+    fontSize: typography.fontSize.base,
+    fontWeight: typography.fontWeight.semiBold,
+    color: colors.primary.main,
+  },
+  installmentInfoSubtitle: {
+    fontSize: typography.fontSize.sm,
+    color: colors.text.secondary,
+    marginTop: 2,
+  },
+  installmentNotice: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    backgroundColor: colors.background.tertiary,
+    borderRadius: borderRadius.base,
+    padding: spacing.base,
+    marginBottom: spacing.lg,
+    gap: spacing.sm,
+  },
+  installmentNoticeText: {
+    flex: 1,
+    fontSize: typography.fontSize.sm,
+    color: colors.text.tertiary,
+    lineHeight: 18,
   },
 });

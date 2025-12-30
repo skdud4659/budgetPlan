@@ -102,6 +102,13 @@ export default function AssetsScreen() {
     try {
       if (editingAsset) {
         await assetService.updateAsset(editingAsset.id, data);
+        // 상세 시트가 열려있으면 최신 데이터로 업데이트
+        if (selectedAsset && selectedAsset.id === editingAsset.id) {
+          const updatedAsset = await assetService.getAsset(editingAsset.id);
+          if (updatedAsset) {
+            setSelectedAsset(updatedAsset);
+          }
+        }
       } else {
         await assetService.createAsset(data);
       }
@@ -136,9 +143,8 @@ export default function AssetsScreen() {
     setSelectedAsset(asset);
   };
 
-  // 자산 수정 모달 열기
+  // 자산 수정 모달 열기 (상세 시트는 유지)
   const handleEditAsset = (asset: Asset) => {
-    setSelectedAsset(null); // 상세 시트 닫기
     setEditingAsset(asset);
     setShowAddSheet(true);
   };
@@ -384,9 +390,9 @@ export default function AssetsScreen() {
         </ScrollView>
       )}
 
-      {/* 자산 상세 시트 */}
+      {/* 자산 상세 시트 - 수정 시트가 열리면 숨김 */}
       <AssetDetailSheet
-        visible={!!selectedAsset}
+        visible={!!selectedAsset && !showAddSheet}
         asset={selectedAsset}
         onClose={() => setSelectedAsset(null)}
         onEdit={() => selectedAsset && handleEditAsset(selectedAsset)}
@@ -402,7 +408,10 @@ export default function AssetsScreen() {
       {/* 자산 추가/수정 바텀시트 */}
       <AddAssetSheet
         visible={showAddSheet}
-        onClose={handleCloseSheet}
+        onClose={() => {
+          setShowAddSheet(false);
+          setEditingAsset(null);
+        }}
         onSubmit={handleSubmitAsset}
         onDelete={editingAsset ? () => handleDeleteAsset(editingAsset) : undefined}
         editAsset={editingAsset}
@@ -531,13 +540,13 @@ function AssetCard({
         {isCard && billingInfo ? (
           <View style={styles.cardBillingInfo}>
             <View style={styles.billingRow}>
-              <Text style={styles.billingLabel}>이번달</Text>
+              <Text style={styles.billingLabel}>결제 예정</Text>
               <Text style={styles.billingAmount}>
                 {formatCurrency(billingInfo.currentBilling)}
               </Text>
             </View>
             <View style={styles.billingRow}>
-              <Text style={styles.billingLabel}>다음달</Text>
+              <Text style={styles.billingLabel}>미결제</Text>
               <Text style={styles.billingAmountNext}>
                 {formatCurrency(billingInfo.nextBilling)}
               </Text>

@@ -74,6 +74,8 @@ export interface Transaction {
   totalTerm: number | null; // 총 할부 개월
   currentTerm: number | null; // 현재 회차
   installmentDay: number | null; // 할부 납부일 (1-31)
+  installmentId: string | null; // 할부 마스터 ID (월별 거래가 원본을 참조)
+  originalAmount: number | null; // 할부 원본 총액 (월별 거래에서 참조용)
   includeInLivingExpense: boolean; // 생활비 포함 여부
   createdAt: string;
   updatedAt: string;

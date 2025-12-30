@@ -31,6 +31,7 @@ export default function LivingScreen() {
     personalBudget,
     jointBudget,
     updateBudgets,
+    monthStartDay,
   } = useSettings();
 
   const [currentMonth, setCurrentMonth] = useState(new Date());
@@ -54,9 +55,10 @@ export default function LivingScreen() {
     try {
       setIsLoading(true);
       const [transactionData, fixedData] = await Promise.all([
-        transactionService.getTransactions(
+        transactionService.getTransactionsWithInstallmentsByStartDay(
           currentMonth.getFullYear(),
-          currentMonth.getMonth() + 1
+          currentMonth.getMonth() + 1,
+          monthStartDay
         ),
         fixedItemService.getFixedItems(),
       ]);
@@ -67,7 +69,7 @@ export default function LivingScreen() {
     } finally {
       setIsLoading(false);
     }
-  }, [currentMonth]);
+  }, [currentMonth, monthStartDay]);
 
   useFocusEffect(
     useCallback(() => {
@@ -174,6 +176,7 @@ export default function LivingScreen() {
     .filter(t => t.type === 'expense' && t.category?.type !== 'fixed' && t.includeInLivingExpense !== false)
     .sort((a, b) => b.date.localeCompare(a.date));
 
+  
   // 날짜별 그룹핑
   const groupTransactionsByDate = () => {
     const groups: { date: string; transactions: Transaction[] }[] = [];
@@ -429,6 +432,7 @@ export default function LivingScreen() {
                           </Text>
                           <Text style={styles.transactionCategory}>
                             {transaction.category?.name || '미분류'}
+                            {transaction.asset && ` · ${transaction.asset.name}`}
                           </Text>
                         </View>
                         <Text style={styles.transactionAmount}>
@@ -904,4 +908,4 @@ const styles = StyleSheet.create({
     fontWeight: typography.fontWeight.semiBold,
     color: colors.text.inverse,
   },
-});
+  });
