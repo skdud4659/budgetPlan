@@ -11,6 +11,7 @@ const transformFixedItem = (row: any): FixedItem => ({
   day: row.day,
   categoryId: row.category_id,
   assetId: row.asset_id,
+  toAssetId: row.to_asset_id,
   budgetType: row.budget_type as BudgetType,
   isActive: row.is_active,
   createdAt: row.created_at,
@@ -44,6 +45,21 @@ const transformFixedItem = (row: any): FixedItem => ({
         updatedAt: row.assets.updated_at,
       }
     : undefined,
+  // 조인된 이체 대상 자산 정보
+  toAsset: row.to_assets
+    ? {
+        id: row.to_assets.id,
+        userId: row.to_assets.user_id,
+        name: row.to_assets.name,
+        type: row.to_assets.type,
+        balance: parseFloat(row.to_assets.balance),
+        billingDate: row.to_assets.billing_date,
+        settlementDate: row.to_assets.settlement_date,
+        sortOrder: row.to_assets.sort_order,
+        createdAt: row.to_assets.created_at,
+        updatedAt: row.to_assets.updated_at,
+      }
+    : undefined,
 });
 
 export const fixedItemService = {
@@ -55,7 +71,8 @@ export const fixedItemService = {
         `
         *,
         categories:category_id (id, user_id, name, icon_name, color, type, sort_order, is_default, is_hidden, created_at),
-        assets:asset_id (id, user_id, name, type, balance, billing_date, settlement_date, sort_order, created_at, updated_at)
+        assets:asset_id (id, user_id, name, type, balance, billing_date, settlement_date, sort_order, created_at, updated_at),
+        to_assets:to_asset_id (id, user_id, name, type, balance, billing_date, settlement_date, sort_order, created_at, updated_at)
       `
       )
       .eq("is_active", true)
@@ -73,7 +90,8 @@ export const fixedItemService = {
         `
         *,
         categories:category_id (id, user_id, name, icon_name, color, type, sort_order, is_default, is_hidden, created_at),
-        assets:asset_id (id, user_id, name, type, balance, billing_date, settlement_date, sort_order, created_at, updated_at)
+        assets:asset_id (id, user_id, name, type, balance, billing_date, settlement_date, sort_order, created_at, updated_at),
+        to_assets:to_asset_id (id, user_id, name, type, balance, billing_date, settlement_date, sort_order, created_at, updated_at)
       `
       )
       .eq("id", id)
@@ -91,6 +109,7 @@ export const fixedItemService = {
     day: number;
     categoryId?: string | null;
     assetId?: string | null;
+    toAssetId?: string | null;
     budgetType: BudgetType;
   }): Promise<FixedItem> {
     const {
@@ -108,13 +127,15 @@ export const fixedItemService = {
         day: item.day,
         category_id: item.categoryId || null,
         asset_id: item.assetId || null,
+        to_asset_id: item.toAssetId || null,
         budget_type: item.budgetType,
       })
       .select(
         `
         *,
         categories:category_id (id, user_id, name, icon_name, color, type, sort_order, is_default, is_hidden, created_at),
-        assets:asset_id (id, user_id, name, type, balance, billing_date, settlement_date, sort_order, created_at, updated_at)
+        assets:asset_id (id, user_id, name, type, balance, billing_date, settlement_date, sort_order, created_at, updated_at),
+        to_assets:to_asset_id (id, user_id, name, type, balance, billing_date, settlement_date, sort_order, created_at, updated_at)
       `
       )
       .single();
@@ -129,6 +150,9 @@ export const fixedItemService = {
     const actualDay = Math.min(item.day, daysInMonth);
     const transactionDate = `${currentYear}-${String(currentMonth).padStart(2, "0")}-${String(actualDay).padStart(2, "0")}`;
 
+    // 이체인 경우와 지출인 경우 분리
+    const transactionType = item.type === "transfer" ? "transfer" : "expense";
+
     // 이미 동일한 거래가 있는지 확인
     const { data: existing } = await supabase
       .from("transactions")
@@ -137,7 +161,7 @@ export const fixedItemService = {
       .eq("title", item.name)
       .eq("amount", item.amount)
       .eq("date", transactionDate)
-      .eq("type", "expense")
+      .eq("type", transactionType)
       .single();
 
     // 중복이 아니면 거래 생성
@@ -147,9 +171,10 @@ export const fixedItemService = {
         title: item.name,
         amount: item.amount,
         date: transactionDate,
-        type: "expense",
-        category_id: item.categoryId || null,
+        type: transactionType,
+        category_id: item.type === "transfer" ? null : (item.categoryId || null),
         asset_id: item.assetId || null,
+        to_asset_id: item.type === "transfer" ? (item.toAssetId || null) : null,
         budget_type: item.budgetType,
         is_installment: false,
         include_in_living_expense: false,
@@ -169,6 +194,7 @@ export const fixedItemService = {
       day?: number;
       categoryId?: string | null;
       assetId?: string | null;
+      toAssetId?: string | null;
       budgetType?: BudgetType;
       isActive?: boolean;
     }
@@ -181,6 +207,7 @@ export const fixedItemService = {
     if (updates.day !== undefined) updateData.day = updates.day;
     if (updates.categoryId !== undefined) updateData.category_id = updates.categoryId;
     if (updates.assetId !== undefined) updateData.asset_id = updates.assetId;
+    if (updates.toAssetId !== undefined) updateData.to_asset_id = updates.toAssetId;
     if (updates.budgetType !== undefined)
       updateData.budget_type = updates.budgetType;
     if (updates.isActive !== undefined) updateData.is_active = updates.isActive;
@@ -193,7 +220,8 @@ export const fixedItemService = {
         `
         *,
         categories:category_id (id, user_id, name, icon_name, color, type, sort_order, is_default, is_hidden, created_at),
-        assets:asset_id (id, user_id, name, type, balance, billing_date, settlement_date, sort_order, created_at, updated_at)
+        assets:asset_id (id, user_id, name, type, balance, billing_date, settlement_date, sort_order, created_at, updated_at),
+        to_assets:to_asset_id (id, user_id, name, type, balance, billing_date, settlement_date, sort_order, created_at, updated_at)
       `
       )
       .single();

@@ -26,6 +26,8 @@ import { assetService } from "../services/assetService";
 import { transactionService } from "../services/transactionService";
 import { settingsService } from "../services/settingsService";
 import ConfirmModal from "./ConfirmModal";
+import AddCategoryModal from "./AddCategoryModal";
+import type { CategoryType } from "../types";
 
 interface AddTransactionSheetProps {
   visible: boolean;
@@ -127,9 +129,22 @@ export default function AddTransactionSheet({
     title: string;
     message: string;
   }>({ visible: false, title: "", message: "" });
+  const [showAddCategoryModal, setShowAddCategoryModal] = useState(false);
 
   const showAlert = (title: string, message: string) => {
     setAlertModal({ visible: true, title, message });
+  };
+
+  // 현재 트랜잭션 타입에 따른 카테고리 타입 반환
+  const getCurrentCategoryType = (): CategoryType => {
+    return formData.type === "income" ? "income" : "expense";
+  };
+
+  // 카테고리 추가 성공 시 핸들러
+  const handleCategoryAdded = async (categoryId: string) => {
+    // 새로 생성된 카테고리를 선택하고 카테고리 목록 새로고침
+    await loadData();
+    setFormData((prev) => ({ ...prev, categoryId }));
   };
 
   // 폼 데이터 초기화 (visible, editTransaction, installmentMode 변경 시)
@@ -1031,6 +1046,20 @@ export default function AddTransactionSheet({
                           </Text>
                         </TouchableOpacity>
                       ))}
+                      {/* 카테고리 추가 버튼 */}
+                      <TouchableOpacity
+                        style={styles.categoryItem}
+                        onPress={() => setShowAddCategoryModal(true)}
+                      >
+                        <View style={styles.addCategoryIcon}>
+                          <Ionicons
+                            name="add"
+                            size={22}
+                            color={colors.primary.main}
+                          />
+                        </View>
+                        <Text style={styles.addCategoryName}>추가</Text>
+                      </TouchableOpacity>
                     </View>
                   )}
                 </View>
@@ -1438,6 +1467,14 @@ export default function AddTransactionSheet({
         onConfirm={() => setAlertModal({ ...alertModal, visible: false })}
         onCancel={() => setAlertModal({ ...alertModal, visible: false })}
       />
+
+      {/* Add Category Modal */}
+      <AddCategoryModal
+        visible={showAddCategoryModal}
+        categoryType={getCurrentCategoryType()}
+        onClose={() => setShowAddCategoryModal(false)}
+        onSuccess={handleCategoryAdded}
+      />
     </>
   );
 }
@@ -1632,6 +1669,22 @@ const styles = StyleSheet.create({
   },
   categoryNameActive: {
     color: colors.text.primary,
+    fontWeight: typography.fontWeight.medium,
+  },
+  addCategoryIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: spacing.xs,
+    borderWidth: 2,
+    borderColor: colors.primary.main,
+    borderStyle: "dashed",
+  },
+  addCategoryName: {
+    fontSize: typography.fontSize.sm,
+    color: colors.primary.main,
     fontWeight: typography.fontWeight.medium,
   },
   dropdownButton: {

@@ -25,7 +25,7 @@ export type TransactionType = 'income' | 'expense' | 'transfer';
 export type BudgetType = 'personal' | 'joint';
 
 // 정기지출 타입 (할부는 이제 transactions에서 관리)
-export type FixedItemType = 'fixed';
+export type FixedItemType = 'fixed' | 'transfer';
 
 // 자산 인터페이스
 export interface Asset {
@@ -95,12 +95,14 @@ export interface FixedItem {
   day: number; // 납부일 (1-31)
   categoryId: string | null;
   assetId: string | null;
+  toAssetId: string | null; // 이체 대상 자산 (이체용)
   budgetType: BudgetType;
   isActive: boolean;
   createdAt: string;
   // Relations
   category?: Category;
   asset?: Asset;
+  toAsset?: Asset;
 }
 
 // 앱 설정 인터페이스

@@ -52,6 +52,24 @@ export default function AssetsScreen() {
       const data = await assetService.getAssets();
       setAssets(data);
 
+      // editingAsset이 있으면 최신 데이터로 업데이트 (stale data 방지)
+      setEditingAsset((prev) => {
+        if (prev) {
+          const updatedAsset = data.find((a) => a.id === prev.id);
+          return updatedAsset || null;
+        }
+        return prev;
+      });
+
+      // selectedAsset이 있으면 최신 데이터로 업데이트
+      setSelectedAsset((prev) => {
+        if (prev) {
+          const updatedAsset = data.find((a) => a.id === prev.id);
+          return updatedAsset || null;
+        }
+        return prev;
+      });
+
       // 카드 자산의 결제 예정 금액 로드
       const cardAssets = data.filter(
         (a) => a.type === 'card' && a.settlementDate && a.billingDate

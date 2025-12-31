@@ -23,6 +23,7 @@ import type { FixedItem, FixedItemType, BudgetType, Asset, Category } from "../t
 import { assetService } from "../services/assetService";
 import { settingsService } from "../services/settingsService";
 import { categoryService } from "../services/categoryService";
+import AddCategoryModal from "./AddCategoryModal";
 
 interface AddFixedItemSheetProps {
   visible: boolean;
@@ -39,6 +40,7 @@ interface FixedItemFormData {
   day: number;
   categoryId: string | null;
   assetId: string | null;
+  toAssetId: string | null;
   budgetType: BudgetType;
 }
 
@@ -52,17 +54,28 @@ export default function AddFixedItemSheet({
   const [name, setName] = useState("");
   const [amount, setAmount] = useState("");
   const [day, setDay] = useState("");
+  const [itemType, setItemType] = useState<FixedItemType>("fixed");
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [assetId, setAssetId] = useState<string | null>(null);
+  const [toAssetId, setToAssetId] = useState<string | null>(null);
   const [budgetType, setBudgetType] = useState<BudgetType>("personal");
   const [isLoading, setIsLoading] = useState(false);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [showAssetDropdown, setShowAssetDropdown] = useState(false);
+  const [showToAssetDropdown, setShowToAssetDropdown] = useState(false);
   const [jointBudgetEnabled, setJointBudgetEnabled] = useState(false);
+  const [showAddCategoryModal, setShowAddCategoryModal] = useState(false);
 
   const isEditMode = !!editItem;
+
+  // 카테고리 추가 성공 시 핸들러
+  const handleCategoryAdded = async (newCategoryId: string) => {
+    await loadData();
+    setCategoryId(newCategoryId);
+  };
   const selectedAsset = assets.find((a) => a.id === assetId);
+  const selectedToAsset = assets.find((a) => a.id === toAssetId);
 
   useEffect(() => {
     if (visible) {
@@ -75,8 +88,10 @@ export default function AddFixedItemSheet({
       setName(editItem.name);
       setAmount(editItem.amount.toString());
       setDay(editItem.day.toString());
+      setItemType(editItem.type);
       setCategoryId(editItem.categoryId);
       setAssetId(editItem.assetId);
+      setToAssetId(editItem.toAssetId);
       setBudgetType(editItem.budgetType);
     } else {
       resetForm();
@@ -102,10 +117,13 @@ export default function AddFixedItemSheet({
     setName("");
     setAmount("");
     setDay(new Date().getDate().toString());
+    setItemType("fixed");
     setCategoryId(null);
     setAssetId(null);
+    setToAssetId(null);
     setBudgetType("personal");
     setShowAssetDropdown(false);
+    setShowToAssetDropdown(false);
   };
 
   const handleClose = () => {
@@ -123,15 +141,26 @@ export default function AddFixedItemSheet({
       return;
     }
 
+    // 이체인 경우 출금/입금 자산 모두 필요
+    if (itemType === "transfer") {
+      if (!assetId || !toAssetId) {
+        return;
+      }
+      if (assetId === toAssetId) {
+        return;
+      }
+    }
+
     setIsLoading(true);
     try {
       await onSubmit({
         name: name.trim(),
-        type: "fixed",
+        type: itemType,
         amount: amountNum,
         day: dayNum,
-        categoryId,
+        categoryId: itemType === "transfer" ? null : categoryId,
         assetId,
+        toAssetId: itemType === "transfer" ? toAssetId : null,
         budgetType,
       });
       handleClose();
@@ -146,7 +175,8 @@ export default function AddFixedItemSheet({
     return parseInt(num, 10).toLocaleString("ko-KR");
   };
 
-  const canSubmit = name.trim() && amount && day;
+  const canSubmit = name.trim() && amount && day &&
+    (itemType === "fixed" || (itemType === "transfer" && assetId && toAssetId && assetId !== toAssetId));
 
   return (
     <Modal
@@ -186,7 +216,9 @@ export default function AddFixedItemSheet({
               />
             </TouchableOpacity>
             <Text style={styles.headerTitle}>
-              {isEditMode ? "정기지출 수정" : "정기지출 추가"}
+              {isEditMode
+                ? (editItem?.type === "transfer" ? "정기이체 수정" : "정기지출 수정")
+                : (itemType === "transfer" ? "정기이체 추가" : "정기지출 추가")}
             </Text>
             <View style={styles.headerActions}>
               {isEditMode && onDelete && (
@@ -231,12 +263,65 @@ export default function AddFixedItemSheet({
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
           >
+            {/* Type Selection - 지출/이체 */}
+            {!isEditMode && (
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>유형</Text>
+                <View style={styles.typeRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.typeButton,
+                      itemType === "fixed" && styles.typeButtonActive,
+                    ]}
+                    onPress={() => setItemType("fixed")}
+                  >
+                    <Ionicons
+                      name="card-outline"
+                      size={18}
+                      color={itemType === "fixed" ? colors.text.inverse : colors.text.secondary}
+                      style={{ marginRight: spacing.xs }}
+                    />
+                    <Text
+                      style={[
+                        styles.typeButtonText,
+                        itemType === "fixed" && styles.typeButtonTextActive,
+                      ]}
+                    >
+                      지출
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.typeButton,
+                      itemType === "transfer" && styles.typeButtonActive,
+                    ]}
+                    onPress={() => setItemType("transfer")}
+                  >
+                    <Ionicons
+                      name="swap-horizontal-outline"
+                      size={18}
+                      color={itemType === "transfer" ? colors.text.inverse : colors.text.secondary}
+                      style={{ marginRight: spacing.xs }}
+                    />
+                    <Text
+                      style={[
+                        styles.typeButtonText,
+                        itemType === "transfer" && styles.typeButtonTextActive,
+                      ]}
+                    >
+                      이체
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
             {/* Name */}
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>이름</Text>
               <TextInput
                 style={styles.textInput}
-                placeholder="예: 넷플릭스, 핸드폰 요금"
+                placeholder={itemType === "transfer" ? "예: 적금 이체, 주택청약" : "예: 넷플릭스, 핸드폰 요금"}
                 placeholderTextColor={colors.text.tertiary}
                 value={name}
                 onChangeText={setName}
@@ -263,7 +348,7 @@ export default function AddFixedItemSheet({
 
             {/* Day */}
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>납부일</Text>
+              <Text style={styles.inputLabel}>{itemType === "transfer" ? "이체일" : "납부일"}</Text>
               <View style={styles.dayRow}>
                 <Text style={styles.dayPrefix}>매월</Text>
                 <TextInput
@@ -284,120 +369,109 @@ export default function AddFixedItemSheet({
               </View>
             </View>
 
-            {/* Category Selection - Grid */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>카테고리</Text>
-              <View style={styles.categoryGrid}>
-                {categories.map((category) => (
+            {/* Category Selection - Grid (지출일 때만) */}
+            {itemType === "fixed" && (
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>카테고리</Text>
+                <View style={styles.categoryGrid}>
+                  {categories.map((category) => (
+                    <TouchableOpacity
+                      key={category.id}
+                      style={styles.categoryItem}
+                      onPress={() => setCategoryId(category.id)}
+                    >
+                      <View
+                        style={[
+                          styles.categoryIcon,
+                          { backgroundColor: category.color + "30" },
+                          categoryId === category.id && {
+                            backgroundColor: category.color,
+                          },
+                        ]}
+                      >
+                        <Ionicons
+                          name={category.iconName as keyof typeof Ionicons.glyphMap}
+                          size={18}
+                          color={
+                            categoryId === category.id
+                              ? colors.text.inverse
+                              : category.color
+                          }
+                        />
+                      </View>
+                      <Text
+                        style={[
+                          styles.categoryName,
+                          categoryId === category.id && styles.categoryNameActive,
+                        ]}
+                      >
+                        {category.name}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                  {/* 카테고리 추가 버튼 */}
                   <TouchableOpacity
-                    key={category.id}
                     style={styles.categoryItem}
-                    onPress={() => setCategoryId(category.id)}
+                    onPress={() => setShowAddCategoryModal(true)}
                   >
-                    <View
-                      style={[
-                        styles.categoryIcon,
-                        { backgroundColor: category.color + "30" },
-                        categoryId === category.id && {
-                          backgroundColor: category.color,
-                        },
-                      ]}
-                    >
+                    <View style={styles.addCategoryIcon}>
                       <Ionicons
-                        name={category.iconName as keyof typeof Ionicons.glyphMap}
-                        size={18}
-                        color={
-                          categoryId === category.id
-                            ? colors.text.inverse
-                            : category.color
-                        }
-                      />
-                    </View>
-                    <Text
-                      style={[
-                        styles.categoryName,
-                        categoryId === category.id && styles.categoryNameActive,
-                      ]}
-                    >
-                      {category.name}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-
-            {/* Asset Selection - Dropdown */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>결제 자산</Text>
-              <TouchableOpacity
-                style={styles.dropdownButton}
-                onPress={() => {
-                  setShowAssetDropdown(!showAssetDropdown);
-                }}
-              >
-                <Text
-                  style={[
-                    styles.dropdownButtonText,
-                    !selectedAsset && styles.dropdownPlaceholder,
-                  ]}
-                >
-                  {selectedAsset ? selectedAsset.name : "미지정"}
-                </Text>
-                <Ionicons
-                  name={showAssetDropdown ? "chevron-up" : "chevron-down"}
-                  size={20}
-                  color={colors.text.secondary}
-                />
-              </TouchableOpacity>
-              {showAssetDropdown && (
-                <View style={styles.dropdownList}>
-                  <TouchableOpacity
-                    style={[
-                      styles.dropdownItem,
-                      assetId === null && styles.dropdownItemActive,
-                    ]}
-                    onPress={() => {
-                      setAssetId(null);
-                      setShowAssetDropdown(false);
-                    }}
-                  >
-                    <Text
-                      style={[
-                        styles.dropdownItemText,
-                        assetId === null && styles.dropdownItemTextActive,
-                      ]}
-                    >
-                      미지정
-                    </Text>
-                    {assetId === null && (
-                      <Ionicons
-                        name="checkmark"
-                        size={18}
+                        name="add"
+                        size={22}
                         color={colors.primary.main}
                       />
-                    )}
+                    </View>
+                    <Text style={styles.addCategoryName}>추가</Text>
                   </TouchableOpacity>
-                  {assets.map((asset) => (
+                </View>
+              </View>
+            )}
+
+            {/* Asset Selection - 지출일 때 */}
+            {itemType === "fixed" && (
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>결제 자산</Text>
+                <TouchableOpacity
+                  style={styles.dropdownButton}
+                  onPress={() => {
+                    setShowAssetDropdown(!showAssetDropdown);
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.dropdownButtonText,
+                      !selectedAsset && styles.dropdownPlaceholder,
+                    ]}
+                  >
+                    {selectedAsset ? selectedAsset.name : "미지정"}
+                  </Text>
+                  <Ionicons
+                    name={showAssetDropdown ? "chevron-up" : "chevron-down"}
+                    size={20}
+                    color={colors.text.secondary}
+                  />
+                </TouchableOpacity>
+                {showAssetDropdown && (
+                  <View style={styles.dropdownList}>
                     <TouchableOpacity
-                      key={asset.id}
                       style={[
                         styles.dropdownItem,
-                        assetId === asset.id && styles.dropdownItemActive,
+                        assetId === null && styles.dropdownItemActive,
                       ]}
                       onPress={() => {
-                        setAssetId(asset.id);
+                        setAssetId(null);
                         setShowAssetDropdown(false);
                       }}
                     >
                       <Text
                         style={[
                           styles.dropdownItemText,
-                          assetId === asset.id && styles.dropdownItemTextActive,
+                          assetId === null && styles.dropdownItemTextActive,
                         ]}
                       >
-                        {asset.name}
+                        미지정
                       </Text>
-                      {assetId === asset.id && (
+                      {assetId === null && (
                         <Ionicons
                           name="checkmark"
                           size={18}
@@ -405,10 +479,172 @@ export default function AddFixedItemSheet({
                         />
                       )}
                     </TouchableOpacity>
-                  ))}
+                    {assets.map((asset) => (
+                      <TouchableOpacity
+                        key={asset.id}
+                        style={[
+                          styles.dropdownItem,
+                          assetId === asset.id && styles.dropdownItemActive,
+                        ]}
+                        onPress={() => {
+                          setAssetId(asset.id);
+                          setShowAssetDropdown(false);
+                        }}
+                      >
+                        <Text
+                          style={[
+                            styles.dropdownItemText,
+                            assetId === asset.id && styles.dropdownItemTextActive,
+                          ]}
+                        >
+                          {asset.name}
+                        </Text>
+                        {assetId === asset.id && (
+                          <Ionicons
+                            name="checkmark"
+                            size={18}
+                            color={colors.primary.main}
+                          />
+                        )}
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+              </View>
+            )}
+
+            {/* Transfer Asset Selection - 이체일 때 */}
+            {itemType === "transfer" && (
+              <>
+                {/* 출금 자산 */}
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>출금 자산</Text>
+                  <TouchableOpacity
+                    style={styles.dropdownButton}
+                    onPress={() => {
+                      setShowAssetDropdown(!showAssetDropdown);
+                      setShowToAssetDropdown(false);
+                    }}
+                  >
+                    <Text
+                      style={[
+                        styles.dropdownButtonText,
+                        !selectedAsset && styles.dropdownPlaceholder,
+                      ]}
+                    >
+                      {selectedAsset ? selectedAsset.name : "선택해주세요"}
+                    </Text>
+                    <Ionicons
+                      name={showAssetDropdown ? "chevron-up" : "chevron-down"}
+                      size={20}
+                      color={colors.text.secondary}
+                    />
+                  </TouchableOpacity>
+                  {showAssetDropdown && (
+                    <View style={styles.dropdownList}>
+                      {assets.map((asset) => (
+                        <TouchableOpacity
+                          key={asset.id}
+                          style={[
+                            styles.dropdownItem,
+                            assetId === asset.id && styles.dropdownItemActive,
+                            toAssetId === asset.id && styles.dropdownItemDisabled,
+                          ]}
+                          onPress={() => {
+                            if (toAssetId !== asset.id) {
+                              setAssetId(asset.id);
+                              setShowAssetDropdown(false);
+                            }
+                          }}
+                          disabled={toAssetId === asset.id}
+                        >
+                          <Text
+                            style={[
+                              styles.dropdownItemText,
+                              assetId === asset.id && styles.dropdownItemTextActive,
+                              toAssetId === asset.id && styles.dropdownItemTextDisabled,
+                            ]}
+                          >
+                            {asset.name}
+                          </Text>
+                          {assetId === asset.id && (
+                            <Ionicons
+                              name="checkmark"
+                              size={18}
+                              color={colors.primary.main}
+                            />
+                          )}
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
                 </View>
-              )}
-            </View>
+
+                {/* 입금 자산 */}
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>입금 자산</Text>
+                  <TouchableOpacity
+                    style={styles.dropdownButton}
+                    onPress={() => {
+                      setShowToAssetDropdown(!showToAssetDropdown);
+                      setShowAssetDropdown(false);
+                    }}
+                  >
+                    <Text
+                      style={[
+                        styles.dropdownButtonText,
+                        !selectedToAsset && styles.dropdownPlaceholder,
+                      ]}
+                    >
+                      {selectedToAsset ? selectedToAsset.name : "선택해주세요"}
+                    </Text>
+                    <Ionicons
+                      name={showToAssetDropdown ? "chevron-up" : "chevron-down"}
+                      size={20}
+                      color={colors.text.secondary}
+                    />
+                  </TouchableOpacity>
+                  {showToAssetDropdown && (
+                    <View style={styles.dropdownList}>
+                      {assets.map((asset) => (
+                        <TouchableOpacity
+                          key={asset.id}
+                          style={[
+                            styles.dropdownItem,
+                            toAssetId === asset.id && styles.dropdownItemActive,
+                            assetId === asset.id && styles.dropdownItemDisabled,
+                          ]}
+                          onPress={() => {
+                            if (assetId !== asset.id) {
+                              setToAssetId(asset.id);
+                              setShowToAssetDropdown(false);
+                            }
+                          }}
+                          disabled={assetId === asset.id}
+                        >
+                          <Text
+                            style={[
+                              styles.dropdownItemText,
+                              toAssetId === asset.id && styles.dropdownItemTextActive,
+                              assetId === asset.id && styles.dropdownItemTextDisabled,
+                            ]}
+                          >
+                            {asset.name}
+                          </Text>
+                          {toAssetId === asset.id && (
+                            <Ionicons
+                              name="checkmark"
+                              size={18}
+                              color={colors.primary.main}
+                            />
+                          )}
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+                </View>
+              </>
+            )}
 
             {/* Budget Type - only when joint budget is enabled */}
             {jointBudgetEnabled && (
@@ -453,6 +689,14 @@ export default function AddFixedItemSheet({
           </ScrollView>
         </View>
       </KeyboardAvoidingView>
+
+      {/* Add Category Modal */}
+      <AddCategoryModal
+        visible={showAddCategoryModal}
+        categoryType="fixed"
+        onClose={() => setShowAddCategoryModal(false)}
+        onSuccess={handleCategoryAdded}
+      />
     </Modal>
   );
 }
@@ -539,10 +783,12 @@ const styles = StyleSheet.create({
   },
   typeButton: {
     flex: 1,
+    flexDirection: "row",
     paddingVertical: spacing.md,
     borderRadius: borderRadius.base,
     backgroundColor: colors.background.tertiary,
     alignItems: "center",
+    justifyContent: "center",
   },
   typeButtonActive: {
     backgroundColor: colors.primary.main,
@@ -627,6 +873,13 @@ const styles = StyleSheet.create({
     color: colors.primary.main,
     fontWeight: typography.fontWeight.medium,
   },
+  dropdownItemDisabled: {
+    backgroundColor: colors.background.tertiary,
+    opacity: 0.5,
+  },
+  dropdownItemTextDisabled: {
+    color: colors.text.tertiary,
+  },
   categoryGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -652,6 +905,22 @@ const styles = StyleSheet.create({
   },
   categoryNameActive: {
     color: colors.text.primary,
+    fontWeight: typography.fontWeight.medium,
+  },
+  addCategoryIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: spacing.xs,
+    borderWidth: 2,
+    borderColor: colors.primary.main,
+    borderStyle: "dashed",
+  },
+  addCategoryName: {
+    fontSize: typography.fontSize.sm,
+    color: colors.primary.main,
     fontWeight: typography.fontWeight.medium,
   },
 });

@@ -80,25 +80,41 @@ export default function AssetDetailSheet({
 
   // 자산이 바뀌거나 시트가 열릴 때 초기화 및 데이터 로드
   useEffect(() => {
-    if (visible && asset) {
-      setCurrentAsset(asset);
-      setBillingInfo(null);
-      setTransactions([]);
+    const initializeSheet = async () => {
+      if (visible && asset) {
+        setBillingInfo(null);
+        setTransactions([]);
+        setIsLoading(true);
 
-      // 카드의 경우 오늘 날짜가 포함된 정산 기간을 기준으로 월 설정
-      let initialMonth = new Date();
-      if (asset.type === 'card' && asset.settlementDate) {
-        const today = new Date();
-        const currentDay = today.getDate();
-        // 정산일 이후면 다음 달 기준으로 설정해야 오늘이 포함된 기간이 표시됨
-        if (currentDay >= asset.settlementDate) {
-          initialMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+        try {
+          // 항상 서버에서 최신 자산 정보를 가져옴 (stale data 방지)
+          const freshAsset = await assetService.getAsset(asset.id);
+          const targetAsset = freshAsset || asset;
+          setCurrentAsset(targetAsset);
+
+          // 카드의 경우 오늘 날짜가 포함된 정산 기간을 기준으로 월 설정
+          let initialMonth = new Date();
+          if (targetAsset.type === 'card' && targetAsset.settlementDate) {
+            const today = new Date();
+            const currentDay = today.getDate();
+            // 정산일 이후면 다음 달 기준으로 설정해야 오늘이 포함된 기간이 표시됨
+            if (currentDay >= targetAsset.settlementDate) {
+              initialMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+            }
+          }
+
+          setSelectedMonth(initialMonth);
+          await loadDataAndTransactions(targetAsset, initialMonth);
+        } catch (error) {
+          console.error("Failed to initialize asset detail sheet:", error);
+          setCurrentAsset(asset);
+        } finally {
+          setIsLoading(false);
         }
       }
+    };
 
-      setSelectedMonth(initialMonth);
-      loadDataAndTransactions(asset, initialMonth);
-    }
+    initializeSheet();
   }, [visible, asset?.id]);
 
   // 월이 변경될 때 거래 내역만 다시 로드
@@ -112,7 +128,6 @@ export default function AssetDetailSheet({
   const loadDataAndTransactions = async (targetAsset: Asset, month: Date) => {
     if (!targetAsset) return;
 
-    setIsLoading(true);
     try {
       // 카드인 경우 결제 예정 금액 로드
       if (targetAsset.type === "card" && targetAsset.settlementDate && targetAsset.billingDate) {
@@ -130,8 +145,6 @@ export default function AssetDetailSheet({
       await loadTransactionsForAsset(targetAsset, month);
     } catch (error) {
       console.error("Failed to load asset details:", error);
-    } finally {
-      setIsLoading(false);
     }
   };
 

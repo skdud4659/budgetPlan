@@ -88,6 +88,7 @@ export default function FixedScreen() {
     day: number;
     categoryId: string | null;
     assetId: string | null;
+    toAssetId: string | null;
     budgetType: BudgetType;
   }) => {
     try {
