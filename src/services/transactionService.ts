@@ -473,8 +473,8 @@ export const transactionService = {
   },
 
   // 카드 결제 예정 금액 조회 (정산일 기준)
-  // 결제 예정 금액: 정산일이 지난 기간 (지난달 정산일 ~ 이번달 정산일-1)
-  // 미결제 금액: 현재 사용 중인 기간 (이번달 정산일 ~ 오늘)
+  // 결제 예정 금액: 정산일이 지난 기간의 지출
+  // 미결제 금액: 현재 사용 중인 기간 (아직 정산되지 않은 기간)
   async getCardBillingAmount(
     assetId: string,
     settlementDate: number,
@@ -488,29 +488,49 @@ export const transactionService = {
     const formatDate = (d: Date) =>
       `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
-    // 정산일 기준으로 기간 계산
-    // 결제 예정 금액: 지난달 정산일 ~ 이번달 정산일-1
-    const billingPeriodStart = new Date(currentYear, currentMonth - 1, settlementDate);
-    const billingPeriodEnd = new Date(currentYear, currentMonth, settlementDate - 1);
-
-    // 미결제 금액: 이번달 정산일 ~ 오늘
-    const unbilledPeriodStart = new Date(currentYear, currentMonth, settlementDate);
-    const unbilledPeriodEnd = today;
-
     // 정산일이 지났는지 확인
     const isAfterSettlement = currentDay >= settlementDate;
 
-    // 결제 예정 금액 조회 - 지출 (마스터 할부 제외 - installment_id가 null이 아닌 것만)
-    const { data: billingExpenseData, error: billingExpenseError } = await supabase
+    // 정산일 기준으로 기간 계산
+    // 정산일 이후: 결제 예정 = 지난달 정산일 ~ 이번달 정산일-1, 미결제 = 이번달 정산일 ~ 오늘
+    // 정산일 이전: 결제 예정 = 지지난달 정산일 ~ 지난달 정산일-1, 미결제 = 지난달 정산일 ~ 오늘
+    let billingPeriodStart: Date;
+    let billingPeriodEnd: Date;
+    let unbilledPeriodStart: Date;
+    let unbilledPeriodEnd: Date;
+
+    if (isAfterSettlement) {
+      // 정산일이 지났으면: 지난달 정산일 ~ 이번달 정산일-1
+      billingPeriodStart = new Date(currentYear, currentMonth - 1, settlementDate);
+      billingPeriodEnd = new Date(currentYear, currentMonth, settlementDate - 1);
+      // 미결제: 이번달 정산일 ~ 다음달 정산일-1 (현재 사용 중인 전체 기간)
+      unbilledPeriodStart = new Date(currentYear, currentMonth, settlementDate);
+      unbilledPeriodEnd = new Date(currentYear, currentMonth + 1, settlementDate - 1);
+    } else {
+      // 정산일 이전이면: 지지난달 정산일 ~ 지난달 정산일-1
+      billingPeriodStart = new Date(currentYear, currentMonth - 2, settlementDate);
+      billingPeriodEnd = new Date(currentYear, currentMonth - 1, settlementDate - 1);
+      // 미결제: 지난달 정산일 ~ 이번달 정산일-1 (현재 사용 중인 전체 기간)
+      unbilledPeriodStart = new Date(currentYear, currentMonth - 1, settlementDate);
+      unbilledPeriodEnd = new Date(currentYear, currentMonth, settlementDate - 1);
+    }
+
+    // 결제 예정 금액 조회 - 지출
+    // 마스터 할부(is_installment=true AND installment_id IS NULL)만 제외
+    const { data: billingExpenseDataRaw, error: billingExpenseError } = await supabase
       .from("transactions")
       .select("amount, is_installment, installment_id")
       .eq("asset_id", assetId)
       .eq("type", "expense")
       .gte("date", formatDate(billingPeriodStart))
-      .lte("date", formatDate(billingPeriodEnd))
-      .or("is_installment.eq.false,and(is_installment.eq.true,installment_id.not.is.null)");
+      .lte("date", formatDate(billingPeriodEnd));
 
     if (billingExpenseError) throw billingExpenseError;
+
+    // 마스터 할부만 제외 (is_installment=true AND installment_id IS NULL)
+    const billingExpenseData = (billingExpenseDataRaw || []).filter(
+      (t) => !(t.is_installment === true && t.installment_id === null)
+    );
 
     // 결제 예정 금액에서 차감할 금액 조회 (수입 + 이체로 들어온 금액)
     const { data: billingIncomeData, error: billingIncomeError } = await supabase
@@ -524,10 +544,8 @@ export const transactionService = {
     if (billingIncomeError) throw billingIncomeError;
 
     // 이체로 카드에 들어온 금액 (카드 대금 결제)
-    // 결제는 정산 기간 이후에도 할 수 있으므로, 결제일(billingDate)까지 또는 오늘까지의 이체를 포함
-    const billingTransferEnd = isAfterSettlement
-      ? today
-      : new Date(currentYear, currentMonth, billingDate);
+    // 결제는 정산 기간 이후에도 할 수 있으므로, 오늘까지의 이체를 포함
+    const billingTransferEnd = today;
 
     const { data: billingTransferData, error: billingTransferError } = await supabase
       .from("transactions")
@@ -553,17 +571,22 @@ export const transactionService = {
 
     const currentBilling = Math.max(0, billingExpense - billingIncome - billingTransfer);
 
-    // 미결제 금액 조회 - 지출 (마스터 할부 제외)
-    const { data: unbilledExpenseData, error: unbilledExpenseError } = await supabase
+    // 미결제 금액 조회 - 지출
+    // 마스터 할부(is_installment=true AND installment_id IS NULL)만 제외
+    const { data: unbilledExpenseDataRaw, error: unbilledExpenseError } = await supabase
       .from("transactions")
       .select("amount, is_installment, installment_id")
       .eq("asset_id", assetId)
       .eq("type", "expense")
       .gte("date", formatDate(unbilledPeriodStart))
-      .lte("date", formatDate(unbilledPeriodEnd))
-      .or("is_installment.eq.false,and(is_installment.eq.true,installment_id.not.is.null)");
+      .lte("date", formatDate(unbilledPeriodEnd));
 
     if (unbilledExpenseError) throw unbilledExpenseError;
+
+    // 마스터 할부만 제외
+    const unbilledExpenseData = (unbilledExpenseDataRaw || []).filter(
+      (t) => !(t.is_installment === true && t.installment_id === null)
+    );
 
     // 미결제 금액에서 차감할 수입 조회 (이체는 제외 - 이체는 결제 예정 금액 결제용)
     const { data: unbilledIncomeData, error: unbilledIncomeError } = await supabase
