@@ -374,41 +374,45 @@ export default function AddFixedItemSheet({
               <View style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>카테고리</Text>
                 <View style={styles.categoryGrid}>
-                  {categories.map((category) => (
-                    <TouchableOpacity
-                      key={category.id}
-                      style={styles.categoryItem}
-                      onPress={() => setCategoryId(category.id)}
-                    >
-                      <View
-                        style={[
-                          styles.categoryIcon,
-                          { backgroundColor: category.color + "30" },
-                          categoryId === category.id && {
-                            backgroundColor: category.color,
-                          },
-                        ]}
+                  {categories.map((category) => {
+                    const categoryColor = category.color || colors.text.secondary;
+                    const categoryIcon = (category.iconName || "pricetag-outline") as keyof typeof Ionicons.glyphMap;
+                    return (
+                      <TouchableOpacity
+                        key={category.id}
+                        style={styles.categoryItem}
+                        onPress={() => setCategoryId(category.id)}
                       >
-                        <Ionicons
-                          name={category.iconName as keyof typeof Ionicons.glyphMap}
-                          size={18}
-                          color={
-                            categoryId === category.id
-                              ? colors.text.inverse
-                              : category.color
-                          }
-                        />
-                      </View>
-                      <Text
-                        style={[
-                          styles.categoryName,
-                          categoryId === category.id && styles.categoryNameActive,
-                        ]}
-                      >
-                        {category.name}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
+                        <View
+                          style={[
+                            styles.categoryIcon,
+                            { backgroundColor: categoryColor + "30" },
+                            categoryId === category.id && {
+                              backgroundColor: categoryColor,
+                            },
+                          ]}
+                        >
+                          <Ionicons
+                            name={categoryIcon}
+                            size={18}
+                            color={
+                              categoryId === category.id
+                                ? colors.text.inverse
+                                : categoryColor
+                            }
+                          />
+                        </View>
+                        <Text
+                          style={[
+                            styles.categoryName,
+                            categoryId === category.id && styles.categoryNameActive,
+                          ]}
+                        >
+                          {category.name || "미분류"}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
                   {/* 카테고리 추가 버튼 */}
                   <TouchableOpacity
                     style={styles.categoryItem}

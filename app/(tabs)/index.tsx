@@ -3,12 +3,12 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
   ActivityIndicator,
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { GestureHandlerRootView, ScrollView } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { colors, typography, spacing, borderRadius, shadows } from '../../src/styles';
@@ -18,6 +18,7 @@ import { fixedItemService } from '../../src/services/fixedItemService';
 import { useSettings } from '../../src/contexts/SettingsContext';
 import AddTransactionSheet from '../../src/components/AddTransactionSheet';
 import FixedTransactionSheet from '../../src/components/FixedTransactionSheet';
+import SwipeableContainer from '../../src/components/SwipeableContainer';
 
 const WEEKDAYS = ['일요일', '월요일', '화요일', '수요일', '목요일', '금요일', '토요일'];
 
@@ -230,11 +231,16 @@ export default function HomeScreen() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
+      <GestureHandlerRootView style={styles.gestureContainer}>
+        <SwipeableContainer
+          onSwipeLeft={handleNextMonth}
+          onSwipeRight={handlePrevMonth}
+        >
+          <ScrollView
+            style={styles.scrollView}
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+          >
         {/* 재정 현황 카드 */}
         <View style={styles.summaryCard}>
           <Text style={styles.summaryTitle}>{currentMonth.getMonth() + 1}월, 이만큼 썼어요</Text>
@@ -430,7 +436,9 @@ export default function HomeScreen() {
             </View>
           )}
         </View>
-      </ScrollView>
+          </ScrollView>
+        </SwipeableContainer>
+      </GestureHandlerRootView>
 
       {/* FAB */}
       <TouchableOpacity
@@ -600,6 +608,9 @@ const styles = StyleSheet.create({
     fontWeight: typography.fontWeight.semiBold,
     color: colors.text.primary,
     marginHorizontal: spacing.sm,
+  },
+  gestureContainer: {
+    flex: 1,
   },
   statsButton: {
     width: 40,

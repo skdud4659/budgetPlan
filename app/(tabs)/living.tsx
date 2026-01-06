@@ -3,13 +3,13 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
   TextInput,
   Modal,
   ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { GestureHandlerRootView, ScrollView } from "react-native-gesture-handler";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "expo-router";
 import {
@@ -24,6 +24,7 @@ import { transactionService } from "../../src/services/transactionService";
 import { fixedItemService } from "../../src/services/fixedItemService";
 import { useSettings } from "../../src/contexts/SettingsContext";
 import AddTransactionSheet from "../../src/components/AddTransactionSheet";
+import SwipeableContainer from "../../src/components/SwipeableContainer";
 
 export default function LivingScreen() {
   const {
@@ -228,11 +229,16 @@ export default function LivingScreen() {
         </View>
       </View>
 
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
+      <GestureHandlerRootView style={styles.gestureContainer}>
+        <SwipeableContainer
+          onSwipeLeft={handleNextMonth}
+          onSwipeRight={handlePrevMonth}
+        >
+          <ScrollView
+            style={styles.scrollView}
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+          >
         {/* Budget Type Filter */}
         {jointBudgetEnabled && (
           <View style={styles.filterRow}>
@@ -455,7 +461,9 @@ export default function LivingScreen() {
             </View>
           )}
         </View>
-      </ScrollView>
+          </ScrollView>
+        </SwipeableContainer>
+      </GestureHandlerRootView>
 
       {/* 예산 수정 모달 */}
       <Modal
@@ -594,6 +602,9 @@ const styles = StyleSheet.create({
     fontWeight: typography.fontWeight.semiBold,
     color: colors.text.primary,
     marginHorizontal: spacing.sm,
+  },
+  gestureContainer: {
+    flex: 1,
   },
   scrollView: {
     flex: 1,

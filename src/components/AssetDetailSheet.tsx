@@ -5,11 +5,11 @@ import {
   StyleSheet,
   TouchableOpacity,
   Modal,
-  ScrollView,
   ActivityIndicator,
   TextInput,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { GestureHandlerRootView, ScrollView } from "react-native-gesture-handler";
 import {
   colors,
   typography,
@@ -25,6 +25,7 @@ import { assetService } from "../services/assetService";
 import { categoryService } from "../services/categoryService";
 import AddTransactionSheet from "./AddTransactionSheet";
 import FixedTransactionSheet from "./FixedTransactionSheet";
+import SwipeableContainer from "./SwipeableContainer";
 
 interface AssetDetailSheetProps {
   visible: boolean;
@@ -200,6 +201,9 @@ export default function AssetDetailSheet({
         const formatDateStr = (d: Date) =>
           `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
+        const startDateStr = formatDateStr(startDate);
+        const endDateStr = formatDateStr(endDate);
+
         // 시작월과 종료월의 거래 조회
         const startYear = startDate.getFullYear();
         const startMonth = startDate.getMonth() + 1;
@@ -218,25 +222,9 @@ export default function AssetDetailSheet({
           allTransactions.push(...endMonthTxs.filter(t => t.assetId === targetAsset.id || t.toAssetId === targetAsset.id));
         }
 
-        // 오늘 날짜가 정산일 이후면 현재 월도 조회 (오늘 결제한 거래 포함)
-        const today = new Date();
-        const todayMonth = today.getMonth() + 1;
-        const todayYear = today.getFullYear();
-        if (todayMonth !== startMonth || todayYear !== startYear) {
-          if (todayMonth !== endMonth || todayYear !== endYear) {
-            const todayMonthTxs = await transactionService.getTransactionsWithInstallments(todayYear, todayMonth);
-            allTransactions.push(...todayMonthTxs.filter(t => t.assetId === targetAsset.id || t.toAssetId === targetAsset.id));
-          }
-        }
-
-        // 날짜 범위로 필터링 (오늘까지 포함)
-        const startDateStr = formatDateStr(startDate);
-        const endDateStr = formatDateStr(endDate);
-        const todayStr = formatDateStr(today);
+        // 정산 기간 내의 거래만 필터링 (정확히 startDateStr ~ endDateStr 범위만)
         const filteredTxs = allTransactions.filter(t => {
-          // 정산 기간 내이거나, 정산 기간 이후 오늘까지의 거래
-          return (t.date >= startDateStr && t.date <= endDateStr) ||
-                 (t.date > endDateStr && t.date <= todayStr);
+          return t.date >= startDateStr && t.date <= endDateStr;
         });
 
         // 중복 제거 및 날짜순 정렬
@@ -637,106 +625,113 @@ export default function AssetDetailSheet({
                     {filteredTransactions.length}건
                   </Text>
 
-                  {groupedTransactions.length > 0 ? (
-                    <View style={styles.listCard}>
-                      {groupedTransactions.map((group) => (
-                        <View key={group.date}>
-                          <View style={styles.dateHeader}>
-                            <Text style={styles.dateHeaderText}>
-                              {formatDateHeader(group.date)}
-                            </Text>
-                          </View>
-                          {group.transactions.map((transaction, index) => {
-                            const isInstallment = transaction.isInstallment;
-                            const displayAmount = transaction.amount;
-                            const isTransfer = transaction.type === "transfer";
-                            const isOutgoing = transaction.assetId === asset.id;
-
-                            return (
-                              <TouchableOpacity
-                                key={transaction.id}
-                                style={[
-                                  styles.listItem,
-                                  index < group.transactions.length - 1 &&
-                                    styles.listItemBorder,
-                                ]}
-                                activeOpacity={0.7}
-                                onPress={() => {
-                                  if (transaction.category?.type === 'fixed') {
-                                    setSelectedFixedTransaction(transaction);
-                                    setShowFixedTransaction(true);
-                                  } else {
-                                    setEditingTransaction(transaction);
-                                    setShowAddTransaction(true);
-                                  }
-                                }}
-                              >
-                                <View style={styles.listItemContent}>
-                                  <View style={styles.listItemTitleRow}>
-                                    <Text style={styles.listItemTitle} numberOfLines={1}>
-                                      {transaction.title}
-                                    </Text>
-                                    <View style={styles.indicatorRow}>
-                                      {transaction.category?.type === 'fixed' && (
-                                        <View style={styles.fixedIndicator}>
-                                          <Ionicons name="repeat" size={12} color={colors.semantic.expense} />
-                                        </View>
-                                      )}
-                                      {isInstallment &&
-                                        transaction.currentTerm &&
-                                        transaction.totalTerm && (
-                                          <View style={styles.installmentBadge}>
-                                            <Text style={styles.installmentBadgeText}>
-                                              {transaction.currentTerm}/
-                                              {transaction.totalTerm}
-                                            </Text>
-                                          </View>
-                                        )}
-                                    </View>
-                                  </View>
-                                  <Text style={styles.listItemSubtitle}>
-                                    {transaction.category?.name || "미분류"}
-                                    {isTransfer &&
-                                      (isOutgoing
-                                        ? ` → ${transaction.toAsset?.name || "알 수 없음"}`
-                                        : ` ← ${transaction.asset?.name || "알 수 없음"}`)}
-                                  </Text>
-                                </View>
-                                <Text
-                                  style={[
-                                    styles.listItemAmount,
-                                    transaction.type === "income" && styles.incomeText,
-                                    transaction.type === "expense" &&
-                                      (isInstallment &&
-                                      !transaction.includeInLivingExpense
-                                        ? styles.excludedText
-                                        : styles.expenseText),
-                                    transaction.type === "transfer" &&
-                                      styles.transferText,
-                                  ]}
-                                >
-                                  {transaction.type === "income"
-                                    ? "+"
-                                    : transaction.type === "transfer"
-                                    ? isOutgoing
-                                      ? "-"
-                                      : "+"
-                                    : "-"}
-                                  {formatCurrency(displayAmount)}
+                  <GestureHandlerRootView style={styles.swipeArea}>
+                    <SwipeableContainer
+                      onSwipeLeft={handleNextMonth}
+                      onSwipeRight={handlePrevMonth}
+                    >
+                      {groupedTransactions.length > 0 ? (
+                        <View style={styles.listCard}>
+                          {groupedTransactions.map((group) => (
+                            <View key={group.date}>
+                              <View style={styles.dateHeader}>
+                                <Text style={styles.dateHeaderText}>
+                                  {formatDateHeader(group.date)}
                                 </Text>
-                              </TouchableOpacity>
-                            );
-                          })}
+                              </View>
+                              {group.transactions.map((transaction, index) => {
+                                const isInstallment = transaction.isInstallment;
+                                const displayAmount = transaction.amount;
+                                const isTransfer = transaction.type === "transfer";
+                                const isOutgoing = transaction.assetId === asset.id;
+
+                                return (
+                                  <TouchableOpacity
+                                    key={transaction.id}
+                                    style={[
+                                      styles.listItem,
+                                      index < group.transactions.length - 1 &&
+                                        styles.listItemBorder,
+                                    ]}
+                                    activeOpacity={0.7}
+                                    onPress={() => {
+                                      if (transaction.category?.type === 'fixed') {
+                                        setSelectedFixedTransaction(transaction);
+                                        setShowFixedTransaction(true);
+                                      } else {
+                                        setEditingTransaction(transaction);
+                                        setShowAddTransaction(true);
+                                      }
+                                    }}
+                                  >
+                                    <View style={styles.listItemContent}>
+                                      <View style={styles.listItemTitleRow}>
+                                        <Text style={styles.listItemTitle} numberOfLines={1}>
+                                          {transaction.title}
+                                        </Text>
+                                        <View style={styles.indicatorRow}>
+                                          {transaction.category?.type === 'fixed' && (
+                                            <View style={styles.fixedIndicator}>
+                                              <Ionicons name="repeat" size={12} color={colors.semantic.expense} />
+                                            </View>
+                                          )}
+                                          {isInstallment &&
+                                            transaction.currentTerm &&
+                                            transaction.totalTerm && (
+                                              <View style={styles.installmentBadge}>
+                                                <Text style={styles.installmentBadgeText}>
+                                                  {transaction.currentTerm}/
+                                                  {transaction.totalTerm}
+                                                </Text>
+                                              </View>
+                                            )}
+                                        </View>
+                                      </View>
+                                      <Text style={styles.listItemSubtitle}>
+                                        {transaction.category?.name || "미분류"}
+                                        {isTransfer &&
+                                          (isOutgoing
+                                            ? ` → ${transaction.toAsset?.name || "알 수 없음"}`
+                                            : ` ← ${transaction.asset?.name || "알 수 없음"}`)}
+                                      </Text>
+                                    </View>
+                                    <Text
+                                      style={[
+                                        styles.listItemAmount,
+                                        transaction.type === "income" && styles.incomeText,
+                                        transaction.type === "expense" &&
+                                          (isInstallment &&
+                                          !transaction.includeInLivingExpense
+                                            ? styles.excludedText
+                                            : styles.expenseText),
+                                        transaction.type === "transfer" &&
+                                          styles.transferText,
+                                      ]}
+                                    >
+                                      {transaction.type === "income"
+                                        ? "+"
+                                        : transaction.type === "transfer"
+                                        ? isOutgoing
+                                          ? "-"
+                                          : "+"
+                                        : "-"}
+                                      {formatCurrency(displayAmount)}
+                                    </Text>
+                                  </TouchableOpacity>
+                                );
+                              })}
+                            </View>
+                          ))}
                         </View>
-                      ))}
-                    </View>
-                  ) : (
-                    <View style={styles.emptySection}>
-                      <Text style={styles.emptyText}>
-                        {formatMonthYear(selectedMonth)} 거래 내역이 없습니다
-                      </Text>
-                    </View>
-                  )}
+                      ) : (
+                        <View style={styles.emptySection}>
+                          <Text style={styles.emptyText}>
+                            {formatMonthYear(selectedMonth)} 거래 내역이 없습니다
+                          </Text>
+                        </View>
+                      )}
+                    </SwipeableContainer>
+                  </GestureHandlerRootView>
                 </View>
               </>
             )}
@@ -1167,6 +1162,9 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.xs,
     fontWeight: typography.fontWeight.medium,
     color: colors.primary.main,
+  },
+  swipeArea: {
+    flex: 1,
   },
   emptySection: {
     backgroundColor: colors.background.secondary,

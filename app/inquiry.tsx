@@ -9,6 +9,7 @@ import {
   Modal,
   ActivityIndicator,
   RefreshControl,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
@@ -94,12 +95,13 @@ export default function InquiryScreen() {
         title: title.trim(),
         content: content.trim(),
       });
+      Alert.alert('문의 완료', '문의가 성공적으로 접수되었습니다.');
       resetForm();
       setShowNewInquiry(false);
       loadInquiries();
     } catch (error: any) {
       console.error('문의 등록 실패:', error);
-      alert('문의 등록에 실패했습니다: ' + (error.message || '알 수 없는 오류'));
+      Alert.alert('오류', '문의 등록에 실패했습니다: ' + (error.message || '알 수 없는 오류'));
     } finally {
       setIsSubmitting(false);
     }

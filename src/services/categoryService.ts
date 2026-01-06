@@ -64,6 +64,21 @@ export const categoryService = {
     } = await supabase.auth.getUser();
     if (!user) throw new Error("로그인이 필요합니다.");
 
+    // sortOrder가 지정되지 않으면 해당 타입의 마지막 순서 + 1로 설정
+    let sortOrder = item.sortOrder;
+    if (sortOrder === undefined) {
+      const { data: lastCategory } = await supabase
+        .from("categories")
+        .select("sort_order")
+        .eq("type", item.type)
+        .or(`user_id.is.null,user_id.eq.${user.id}`)
+        .order("sort_order", { ascending: false })
+        .limit(1)
+        .single();
+
+      sortOrder = (lastCategory?.sort_order ?? -1) + 1;
+    }
+
     const { data, error } = await supabase
       .from("categories")
       .insert({
@@ -72,7 +87,7 @@ export const categoryService = {
         icon_name: item.iconName,
         color: item.color,
         type: item.type,
-        sort_order: item.sortOrder || 100,
+        sort_order: sortOrder,
         is_default: false,
         is_hidden: false,
       })

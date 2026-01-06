@@ -42,6 +42,23 @@ export const inquiryService = {
   getCategoryLabel: (category: InquiryCategory) => categoryLabels[category],
   getStatusLabel: (status: InquiryStatus) => statusLabels[status],
 
+  // 이메일 전송 (Edge Function 호출)
+  async sendInquiryEmail(data: CreateInquiryData, userEmail: string): Promise<void> {
+    const { data: result, error } = await supabase.functions.invoke('send-inquiry-email', {
+      body: {
+        category: categoryLabels[data.category],
+        title: data.title,
+        content: data.content,
+        userEmail: userEmail,
+      },
+    });
+
+    if (error) {
+      console.error('이메일 전송 실패:', error);
+      // 이메일 전송 실패해도 문의는 저장되므로 에러를 던지지 않음
+    }
+  },
+
   // 문의 생성
   async createInquiry(data: CreateInquiryData): Promise<Inquiry> {
     const { data: { user } } = await supabase.auth.getUser();
@@ -61,6 +78,9 @@ export const inquiryService = {
       .single();
 
     if (error) throw error;
+
+    // 문의 저장 성공 후 이메일 전송 (비동기, 실패해도 무시)
+    this.sendInquiryEmail(data, user.email || '').catch(console.error);
 
     return {
       id: inquiry.id,

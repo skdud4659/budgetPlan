@@ -180,7 +180,7 @@ export default function CategoriesScreen() {
 
   // 드래그앤드롭 순서 변경
   const handleDragEnd = async ({ data }: { data: Category[] }) => {
-    // 현재 타입의 카테고리만 업데이트
+    // 현재 타입의 카테고리만 업데이트 (UI 즉시 반영)
     const otherCategories = categories.filter(c => c.type !== selectedType);
     const newCategories = [...otherCategories, ...data];
     setCategories(newCategories);
@@ -188,8 +188,12 @@ export default function CategoriesScreen() {
     // 서버에 순서 저장
     try {
       await categoryService.updateCategoryOrder(data.map(c => c.id));
+      // 서버에서 다시 불러와서 정확한 순서 동기화
+      await loadCategories();
     } catch (error) {
       console.log("Error updating category order:", error);
+      // 에러 시 원래 데이터로 복원
+      await loadCategories();
     }
   };
 

@@ -184,7 +184,7 @@ export const fixedItemService = {
     return transformFixedItem(data);
   },
 
-  // 정기지출 수정
+  // 정기지출 수정 (미래 거래도 함께 업데이트)
   async updateFixedItem(
     id: string,
     updates: {
@@ -199,6 +199,15 @@ export const fixedItemService = {
       isActive?: boolean;
     }
   ): Promise<FixedItem> {
+    // 기존 고정 비용 정보 조회
+    const { data: existingItem } = await supabase
+      .from("fixed_items")
+      .select("*")
+      .eq("id", id)
+      .single();
+
+    if (!existingItem) throw new Error("고정 비용을 찾을 수 없습니다.");
+
     const updateData: any = {};
 
     if (updates.name !== undefined) updateData.name = updates.name;
@@ -227,6 +236,55 @@ export const fixedItemService = {
       .single();
 
     if (error) throw error;
+
+    // 미래 거래 업데이트 (오늘 이후 날짜의 거래만)
+    const today = new Date();
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+
+    // 미래 거래 조회 (기존 이름과 일치하는 거래)
+    const { data: futureTransactions } = await supabase
+      .from("transactions")
+      .select("id, title, amount, date, category_id, asset_id, budget_type")
+      .eq("title", existingItem.name)
+      .eq("type", existingItem.type === "transfer" ? "transfer" : "expense")
+      .gt("date", todayStr);
+
+    if (futureTransactions && futureTransactions.length > 0) {
+      // 각 미래 거래 업데이트
+      for (const tx of futureTransactions) {
+        const txUpdateData: any = {};
+
+        // 이름이 변경되었으면 업데이트
+        if (updates.name !== undefined && tx.title === existingItem.name) {
+          txUpdateData.title = updates.name;
+        }
+        // 금액이 변경되었으면 업데이트 (기존 금액과 동일한 경우만 - 개별 수정된 건은 제외)
+        if (updates.amount !== undefined && parseFloat(tx.amount) === parseFloat(existingItem.amount)) {
+          txUpdateData.amount = updates.amount;
+        }
+        // 카테고리가 변경되었으면 업데이트
+        if (updates.categoryId !== undefined && tx.category_id === existingItem.category_id) {
+          txUpdateData.category_id = updates.categoryId;
+        }
+        // 자산이 변경되었으면 업데이트
+        if (updates.assetId !== undefined && tx.asset_id === existingItem.asset_id) {
+          txUpdateData.asset_id = updates.assetId;
+        }
+        // 예산 타입이 변경되었으면 업데이트
+        if (updates.budgetType !== undefined && tx.budget_type === existingItem.budget_type) {
+          txUpdateData.budget_type = updates.budgetType;
+        }
+
+        // 업데이트할 내용이 있으면 실행
+        if (Object.keys(txUpdateData).length > 0) {
+          await supabase
+            .from("transactions")
+            .update(txUpdateData)
+            .eq("id", tx.id);
+        }
+      }
+    }
+
     return transformFixedItem(data);
   },
 

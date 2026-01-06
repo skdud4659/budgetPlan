@@ -78,14 +78,9 @@ export default function AddTransactionSheet({
   const isMasterInstallment = editTransaction?.isInstallment && !editTransaction?.installmentId;
 
   const getInitialFormData = (): TransactionFormData => {
-    // 월별 할부 거래는 이미 월별 금액이 저장되어 있음
-    let displayAmount = editTransaction?.amount?.toString() || defaultAmount?.toString() || "";
-
-    // 마스터 할부 수정 시에만 월별 금액으로 변환 (할부 탭에서 수정하는 경우)
-    if (isMasterInstallment && editTransaction.totalTerm && editTransaction.totalTerm > 0) {
-      const monthlyAmount = Math.round(editTransaction.amount / editTransaction.totalTerm);
-      displayAmount = monthlyAmount.toString();
-    }
+    // 마스터 할부는 총액을 그대로 표시 (amount 필드에 총액이 저장됨)
+    // 월별 할부 거래는 월별 금액이 저장되어 있음
+    const displayAmount = editTransaction?.amount?.toString() || defaultAmount?.toString() || "";
 
     return {
       title: editTransaction?.title || defaultTitle || "",
@@ -233,13 +228,9 @@ export default function AddTransactionSheet({
       const amount = parseInt(formData.amount.replace(/,/g, ""), 10);
 
       if (isEditMode && editTransaction) {
-        let saveAmount = amount;
-
-        // 마스터 할부 수정 시에만 월별 금액을 총액으로 변환
-        if (isMasterInstallment && editTransaction.totalTerm && editTransaction.totalTerm > 0) {
-          saveAmount = amount * editTransaction.totalTerm;
-        }
-        // 월별 할부 거래는 입력값 그대로 저장
+        // 마스터 할부는 총액 그대로 저장 (amount 필드에 총액이 저장됨)
+        // 월별 할부 거래도 입력값 그대로 저장
+        const saveAmount = amount;
 
         const updateData: any = {
           title: formData.title,
@@ -558,7 +549,7 @@ export default function AddTransactionSheet({
                 <View style={styles.installmentNotice}>
                   <Ionicons name="information-circle-outline" size={18} color={colors.text.tertiary} />
                   <Text style={styles.installmentNoticeText}>
-                    수정 시 이미 생성된 월별 거래에는 영향을 주지 않습니다. 삭제 시 모든 월별 거래가 함께 삭제됩니다.
+                    수정 시 이번 달 및 미래 월별 거래에 반영됩니다. 개별 수정된 거래는 제외됩니다. 삭제 시 모든 월별 거래가 함께 삭제됩니다.
                   </Text>
                 </View>
               )}
@@ -999,53 +990,55 @@ export default function AddTransactionSheet({
                     />
                   ) : (
                     <View style={styles.categoryGrid}>
-                      {filteredCategories.map((category) => (
-                        <TouchableOpacity
-                          key={category.id}
-                          style={[
-                            styles.categoryItem,
-                            formData.categoryId === category.id &&
-                              styles.categoryItemActive,
-                          ]}
-                          onPress={() =>
-                            setFormData({
-                              ...formData,
-                              categoryId: category.id,
-                            })
-                          }
-                        >
-                          <View
+                      {filteredCategories.map((category) => {
+                        const categoryColor = category.color || colors.text.secondary;
+                        const categoryIcon = (category.iconName || "pricetag-outline") as keyof typeof Ionicons.glyphMap;
+                        return (
+                          <TouchableOpacity
+                            key={category.id}
                             style={[
-                              styles.categoryIcon,
-                              { backgroundColor: category.color + "30" },
-                              formData.categoryId === category.id && {
-                                backgroundColor: category.color,
-                              },
-                            ]}
-                          >
-                            <Ionicons
-                              name={
-                                category.iconName as keyof typeof Ionicons.glyphMap
-                              }
-                              size={18}
-                              color={
-                                formData.categoryId === category.id
-                                  ? colors.text.inverse
-                                  : category.color
-                              }
-                            />
-                          </View>
-                          <Text
-                            style={[
-                              styles.categoryName,
+                              styles.categoryItem,
                               formData.categoryId === category.id &&
-                                styles.categoryNameActive,
+                                styles.categoryItemActive,
                             ]}
+                            onPress={() =>
+                              setFormData({
+                                ...formData,
+                                categoryId: category.id,
+                              })
+                            }
                           >
-                            {category.name}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
+                            <View
+                              style={[
+                                styles.categoryIcon,
+                                { backgroundColor: categoryColor + "30" },
+                                formData.categoryId === category.id && {
+                                  backgroundColor: categoryColor,
+                                },
+                              ]}
+                            >
+                              <Ionicons
+                                name={categoryIcon}
+                                size={18}
+                                color={
+                                  formData.categoryId === category.id
+                                    ? colors.text.inverse
+                                    : categoryColor
+                                }
+                              />
+                            </View>
+                            <Text
+                              style={[
+                                styles.categoryName,
+                                formData.categoryId === category.id &&
+                                  styles.categoryNameActive,
+                              ]}
+                            >
+                              {category.name || "미분류"}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
                       {/* 카테고리 추가 버튼 */}
                       <TouchableOpacity
                         style={styles.categoryItem}
